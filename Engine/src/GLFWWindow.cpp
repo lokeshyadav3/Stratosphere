@@ -1,0 +1,73 @@
+#include "Engine/Window.h"
+#include <GLFW/glfw3.h>
+#include <iostream>
+#include <stdexcept>
+
+namespace Engine
+{
+
+    struct GLFWWindowData
+    {
+        GLFWwindow *Window = nullptr;
+        Window::EventCallbackFn EventCallback;
+        unsigned int Width = 1280, Height = 720;
+        std::string Title;
+    };
+
+    class GLFWWindow : public Window
+    {
+    public:
+        GLFWWindow(const WindowProps &props)
+        {
+            if (!glfwInit())
+                throw std::runtime_error("GLFW init failed");
+            glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // Vulkan
+            data = new GLFWWindowData();
+            data->Width = props.Width;
+            data->Height = props.Height;
+            data->Title = props.Title;
+            data->Window = glfwCreateWindow(props.Width, props.Height, props.Title.c_str(), nullptr, nullptr);
+            if (!data->Window)
+            {
+                glfwTerminate();
+                throw std::runtime_error("Failed to create GLFW window");
+            }
+            glfwSetWindowUserPointer(data->Window, data);
+            glfwSetWindowCloseCallback(data->Window, [](GLFWwindow *wnd)
+                                       {
+                auto d = (GLFWWindowData*)glfwGetWindowUserPointer(wnd);
+                //this calls the stored function
+                if (d && d->EventCallback) d->EventCallback("WindowClose"); });
+        }
+
+        virtual ~GLFWWindow() override
+        {
+            if (data->Window)
+                glfwDestroyWindow(data->Window);
+            glfwTerminate();
+            delete data;
+        }
+
+        virtual void OnUpdate() override
+        {
+            glfwPollEvents();
+            // swap buffers only if you create an OpenGL context; for Vulkan, swap is in renderer
+        }
+
+        virtual unsigned int GetWidth() const override { return data->Width; }
+        virtual unsigned int GetHeight() const override { return data->Height; }
+
+        virtual void SetEventCallback(const EventCallbackFn &cb) override { data->EventCallback = cb; } // This stores the function itself
+
+        virtual void *GetWindowPointer() override { return data->Window; }
+
+    private:
+        GLFWWindowData *data;
+    };
+
+    std::unique_ptr<Window> Window::Create(const WindowProps &props)
+    {
+        return std::make_unique<GLFWWindow>(props);
+    }
+
+} // namespace Engine
