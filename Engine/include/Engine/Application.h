@@ -5,15 +5,14 @@
 
 namespace Engine
 {
+    class Window;
+    class VulkanContext;
+    class Renderer;
 
     struct TimeStep
     {
         float DeltaSeconds = 0.0f;
     };
-
-    class Window;    // forward
-    class Renderer;  // forward
-    class SwapChain; // forward
 
     class Application
     {
@@ -34,6 +33,10 @@ namespace Engine
 
         // Access to window
         Window &GetWindow();
+
+        // New: access to VulkanContext and Renderer for sample setup
+        VulkanContext &GetVulkanContext();
+        Renderer &GetRenderer();
 
         // Request application quit
         void Close();

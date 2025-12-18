@@ -46,6 +46,8 @@ add_library(Engine STATIC
     src/SwapChain.cpp
     src/Renderer.cpp
     src/TrianglesRenderPassModule.cpp
+    src/Pipeline.cpp
+    src/BufferUtils.cpp
     # add other engine sources here...
 )
 

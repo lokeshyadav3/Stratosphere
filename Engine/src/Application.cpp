@@ -3,7 +3,6 @@
 #include "Engine/VulkanContext.h"
 #include "Engine/Renderer.h"
 #include "Engine/SwapChain.h"
-#include <chrono>
 #include <iostream>
 
 namespace Engine
@@ -30,39 +29,26 @@ namespace Engine
         // Create Vulkan context (owns instance, surface creation using the window handle)
         m_Impl->vkContext = std::make_unique<VulkanContext>(*m_Impl->window);
         m_Impl->renderer = std::make_unique<Renderer>(m_Impl->vkContext.get(), m_Impl->vkContext->GetSwapChain(), 4);
+
+        // Initialize renderer now that swapchain exists
+        m_Impl->renderer->init();
     }
 
     Application::~Application() = default;
 
     void Application::Run()
     {
-        using clock = std::chrono::high_resolution_clock;
-        auto last = clock::now();
-
         while (m_Impl->running)
         {
-            auto now = clock::now();
-            std::chrono::duration<float> dt = now - last;
-            last = now;
-
-            TimeStep ts;
-            ts.DeltaSeconds = dt.count();
-
-            // Poll OS events via window
+            // Poll window events
             m_Impl->window->OnUpdate();
 
-            // Call user update
-            OnUpdate(ts);
-
-            // Call renderer (user or engine) to submit draws. For now just the hook:
+            // User update/render hooks
+            OnUpdate({});
             OnRender();
 
-            if (m_Impl->vkContext)
-            {
-                m_Impl->vkContext->DrawFrame();
-            }
-
-            // Optionally throttle to limit CPU spin
+            // Draw one frame
+            m_Impl->renderer->drawFrame();
         }
     }
 
@@ -77,7 +63,14 @@ namespace Engine
     }
 
     Window &Application::GetWindow() { return *m_Impl->window; }
+    VulkanContext &Application::GetVulkanContext() { return *m_Impl->vkContext; }
+    Renderer &Application::GetRenderer() { return *m_Impl->renderer; }
 
     void Application::Close() { m_Impl->running = false; }
+
+    void Application::SetEventCallback(const EventCallbackFn &callback)
+    {
+        m_Impl->eventCallback = callback;
+    }
 
 } // namespace Engine

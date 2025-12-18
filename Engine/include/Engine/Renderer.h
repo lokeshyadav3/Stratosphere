@@ -9,6 +9,7 @@ namespace Engine
 {
     class VulkanContext;
     class SwapChain;
+    class RenderPassModule;
     // Renderer: owns the main on-screen VkRenderPass, per-swapchain VkFramebuffer objects,
     // and per-frame command pools/buffers and synchronization objects. It calls registered
     // RenderPassModule::record() while the main render pass is active.
@@ -26,6 +27,9 @@ namespace Engine
         // Destroy all renderer resources. Waits for device idle internally.
         void cleanup();
 
+        // Per-frame draw: acquire, record main render pass, submit, present
+        void drawFrame();
+
         // Register a RenderPassModule to be invoked each frame. If init() was already called,
         // the module's onCreate(...) will be invoked immediately so it can allocate resources.
         void registerPass(std::shared_ptr<RenderPassModule> pass);
@@ -35,6 +39,9 @@ namespace Engine
 
         // Create framebuffers for each swapchain image view (implementation helper).
         void createFramebuffers();
+
+        VkRenderPass getMainRenderPass() const { return m_mainRenderPass; }
+        VkExtent2D getExtent() const { return m_extent; }
 
     private:
         VulkanContext *m_ctx = nullptr;

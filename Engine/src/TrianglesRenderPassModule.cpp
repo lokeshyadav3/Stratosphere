@@ -1,5 +1,6 @@
 #include "Engine/TrianglesRenderPassModule.h"
 #include "Engine/VulkanContext.h"
+#include "Engine/SwapChain.h"
 #include <stdexcept>
 #include <cstring>
 
@@ -20,6 +21,9 @@ namespace Engine
     {
         (void)fbs; // not needed here
         m_device = ctx.GetDevice();
+        // Initialize extent from current swapchain so dynamic viewport/scissor have valid size
+        if (ctx.GetSwapChain())
+            m_extent = ctx.GetSwapChain()->GetExtent();
         // Assume swapchain extent comes via context; if renderer exposes it, you can pass.
         // We'll set viewport/scissor dynamically in record.
         createPipeline(ctx, pass);
@@ -78,8 +82,8 @@ namespace Engine
         pci.subpass = 0;
 
         // Load shader modules
-        VkShaderModule vert = Pipeline::createShaderModuleFromFile(pci.device, "Shaders/triangle.vert.spv");
-        VkShaderModule frag = Pipeline::createShaderModuleFromFile(pci.device, "Shaders/triangle.frag.spv");
+        VkShaderModule vert = Pipeline::createShaderModuleFromFile(pci.device, "shaders/triangle.vert.spv");
+        VkShaderModule frag = Pipeline::createShaderModuleFromFile(pci.device, "shaders/triangle.frag.spv");
 
         VkPipelineShaderStageCreateInfo vs{};
         vs.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;

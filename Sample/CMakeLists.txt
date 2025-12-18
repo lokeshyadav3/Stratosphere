@@ -5,7 +5,7 @@ add_executable(SampleApp src/main.cpp)
 target_link_libraries(SampleApp PRIVATE Engine)
 target_include_directories(SampleApp PRIVATE ${CMAKE_SOURCE_DIR}/Engine/include)
 
-file(GLOB SHADER_SPV ${CMAKE_SOURCE_DIR}/Shaders/*.spv)
+file(GLOB SHADER_SPV ${CMAKE_SOURCE_DIR}/Engine/Shaders/*.spv)
 
 foreach(SPIRV ${SHADER_SPV})
     add_custom_command(TARGET SampleApp POST_BUILD

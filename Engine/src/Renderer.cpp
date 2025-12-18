@@ -1,7 +1,7 @@
 #include <stdexcept>
 #include <iostream>
 #include <cstring>
-#include "Renderer.h"
+#include "Engine/Renderer.h"
 #include "Engine/VulkanContext.h"
 #include "Engine/SwapChain.h"
 
@@ -240,6 +240,95 @@ namespace Engine
                 throw std::runtime_error("Renderer::createCommandPoolsAndBuffers - failed to allocate command buffer");
             }
         }
+    }
+
+    void Renderer::drawFrame()
+    {
+        if (!m_initialized)
+            return;
+
+        FrameContext &frame = m_frames[m_currentFrame];
+
+        // Wait for previous frame to finish
+        vkWaitForFences(m_device, 1, &frame.inFlightFence, VK_TRUE, UINT64_MAX);
+        vkResetFences(m_device, 1, &frame.inFlightFence);
+
+        // Acquire next image
+        uint32_t imageIndex = 0;
+        VkResult acquireRes = vkAcquireNextImageKHR(
+            m_device,
+            m_swapchain->GetSwapchain(),
+            UINT64_MAX,
+            frame.imageAcquiredSemaphore,
+            VK_NULL_HANDLE,
+            &imageIndex);
+        if (acquireRes != VK_SUCCESS)
+        {
+            // TODO: handle resize/recreate
+            return;
+        }
+
+        // Record command buffer
+        vkResetCommandBuffer(frame.commandBuffer, 0);
+
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(frame.commandBuffer, &beginInfo);
+
+        // Begin render pass
+        VkClearValue clearColor{};
+        clearColor.color = {{0.02f, 0.02f, 0.04f, 1.0f}};
+
+        VkRenderPassBeginInfo rpBegin{};
+        rpBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rpBegin.renderPass = m_mainRenderPass;
+        rpBegin.framebuffer = m_framebuffers[imageIndex];
+        rpBegin.renderArea.offset = {0, 0};
+        rpBegin.renderArea.extent = m_extent;
+        rpBegin.clearValueCount = 1;
+        rpBegin.pClearValues = &clearColor;
+
+        vkCmdBeginRenderPass(frame.commandBuffer, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
+
+        // Let modules record draw commands
+        for (auto &p : m_passes)
+        {
+            if (p)
+                p->record(frame, frame.commandBuffer);
+        }
+
+        vkCmdEndRenderPass(frame.commandBuffer);
+        vkEndCommandBuffer(frame.commandBuffer);
+
+        // Submit to graphics queue
+        VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.waitSemaphoreCount = 1;
+        submitInfo.pWaitSemaphores = &frame.imageAcquiredSemaphore;
+        submitInfo.pWaitDstStageMask = waitStages;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &frame.commandBuffer;
+        submitInfo.signalSemaphoreCount = 1;
+        submitInfo.pSignalSemaphores = &frame.renderFinishedSemaphore;
+
+        vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, frame.inFlightFence);
+
+        // Present
+        VkPresentInfoKHR presentInfo{};
+        presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+        presentInfo.waitSemaphoreCount = 1;
+        presentInfo.pWaitSemaphores = &frame.renderFinishedSemaphore;
+        VkSwapchainKHR swapchains[] = {m_swapchain->GetSwapchain()};
+        presentInfo.swapchainCount = 1;
+        presentInfo.pSwapchains = swapchains;
+        presentInfo.pImageIndices = &imageIndex;
+
+        vkQueuePresentKHR(m_presentQueue, &presentInfo);
+
+        // Advance frame index
+        m_currentFrame = (m_currentFrame + 1) % m_maxFrames;
     }
 
     void Renderer::destroySyncObjects()
