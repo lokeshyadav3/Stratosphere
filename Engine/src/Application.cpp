@@ -80,6 +80,17 @@ namespace Engine
         {
             Close();
         }
+        if (name == "WindowResize")
+        {
+            // Notify renderer that swapchain-dependent resources must be recreated
+            if (m_Impl->renderer)
+            {
+                m_Impl->renderer->cleanup(); // Destroy renderer and all its resources
+                VkExtent2D new_extent = {m_Impl->window->GetWidth(), m_Impl->window->GetHeight()};
+                m_Impl->vkContext->GetSwapChain()->Recreate(new_extent);                // destory the swapchain and recreate with new extents                    // Recreate swapchain in context
+                m_Impl->renderer->init(m_Impl->vkContext->GetSwapChain()->GetExtent()); // Re-initialize renderer resources
+            }
+        }
     }
 
     Window &Application::GetWindow() { return *m_Impl->window; }

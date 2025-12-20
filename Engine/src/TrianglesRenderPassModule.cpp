@@ -66,6 +66,11 @@ namespace Engine
         }
     }
 
+    void TrianglesRenderPassModule::onDestroy(VulkanContext &ctx)
+    {
+        destroyResources();
+    }
+
     void TrianglesRenderPassModule::destroyResources()
     {
         if (m_device != VK_NULL_HANDLE)

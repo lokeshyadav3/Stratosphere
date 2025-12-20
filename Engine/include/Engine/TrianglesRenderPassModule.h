@@ -29,6 +29,7 @@ namespace Engine
         void onCreate(VulkanContext &ctx, VkRenderPass pass, const std::vector<VkFramebuffer> &fbs) override;
         void record(FrameContext &frameCtx, VkCommandBuffer cmd) override;
         void onResize(VulkanContext &ctx, VkExtent2D newExtent) override;
+        void onDestroy(VulkanContext &ctx) override;
 
     private:
         void destroyResources();

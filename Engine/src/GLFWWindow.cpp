@@ -35,12 +35,22 @@ namespace Engine
                 throw std::runtime_error("Failed to create GLFW window");
             }
             glfwSetWindowUserPointer(data->Window, data);
+
+            // Set GLFW callbacks
             glfwSetWindowCloseCallback(data->Window, [](GLFWwindow *wnd)
                                        {
                 auto d = static_cast<GLFWWindowData*>(glfwGetWindowUserPointer(wnd));
                 if (d && d->EventCallback) {
                     d->EventCallback("WindowClose");
                 } });
+
+            glfwSetFramebufferSizeCallback(data->Window, [](GLFWwindow *wnd, int w, int h)
+                                           {
+                auto d = static_cast<GLFWWindowData*>(glfwGetWindowUserPointer(wnd));
+                if (!d) return;
+                d->Width = static_cast<unsigned int>(w);
+                d->Height = static_cast<unsigned int>(h);
+                if (d->EventCallback) d->EventCallback("WindowResize"); });
         }
 
         virtual ~GLFWWindow() override

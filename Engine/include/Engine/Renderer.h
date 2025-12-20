@@ -22,6 +22,7 @@ namespace Engine
 
         // Initialize renderer resources. Must be called after swapchain is created/available.
         // Creates the main render pass, framebuffers, per-frame sync objects and command pools.
+        void init(VkExtent2D extent);
         void init();
 
         // Destroy all renderer resources. Waits for device idle internally.
@@ -90,5 +91,8 @@ namespace Engine
 
         // Called when swapchain/extent changes
         virtual void onResize(VulkanContext &ctx, VkExtent2D newExtent) = 0;
+
+        // Called to destroy any device resources owned by this module (pipelines, layouts, shaders, descriptors, etc.)
+        virtual void onDestroy(VulkanContext &ctx) = 0;
     };
 }

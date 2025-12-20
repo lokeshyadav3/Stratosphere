@@ -40,7 +40,36 @@ namespace Engine
         }
     }
 
-    void Renderer::init()
+    void Renderer::init(VkExtent2D extent)
+    {
+        if (m_initialized)
+            return;
+
+        // If a non-zero extent is provided, override the current extent
+        if (extent.width > 0 && extent.height > 0)
+        {
+            m_extent = extent;
+        }
+
+        // prepare per-frame slots
+        m_frames.resize(m_maxFrames);
+
+        createMainRenderPass();
+        createFramebuffers();
+        createSyncObjects();
+        createCommandPoolsAndBuffers();
+
+        // notify registered passes so they can create pipelines/resources that depend on renderpass/framebuffers
+        for (auto &p : m_passes)
+        {
+            if (p)
+                p->onCreate(*m_ctx, m_mainRenderPass, m_framebuffers);
+        }
+
+        m_initialized = true;
+    }
+
+    void Renderer::init() // Overloaded init function to be used without passing extent
     {
         if (m_initialized)
             return;
@@ -71,12 +100,11 @@ namespace Engine
         // Wait for GPU to finish using resources before destroying them
         vkDeviceWaitIdle(m_device);
 
-        // Optionally notify passes about resize/teardown so they can free resources.
-        // Here we send an empty extent; adapt if your module API has a dedicated destroy hook.
+        // Notify passes to destroy their device-owned resources (pipelines, descriptors, etc.)
         for (auto &p : m_passes)
         {
             if (p)
-                p->onResize(*m_ctx, {0, 0});
+                p->onDestroy(*m_ctx);
         }
 
         destroyCommandPoolsAndBuffers();
