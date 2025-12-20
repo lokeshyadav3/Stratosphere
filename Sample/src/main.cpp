@@ -13,7 +13,22 @@ public:
         // Ensure triangle resources are created and the pass is registered
         setupTriangle();
     }
-    ~MySampleApp() {}
+    ~MySampleApp()
+    {
+    }
+
+    // Destroy MySampleApp-owned Vulkan resources before device teardown
+    void Close() override
+    {
+        // Wait for GPU to finish using resources before destroying them
+        vkDeviceWaitIdle(GetVulkanContext().GetDevice());
+        // Free vertex buffer while device is alive
+        Engine::DestroyVertexBuffer(GetVulkanContext().GetDevice(), m_vertexBuffer);
+        // Release triangles pass to trigger its pipeline/layout destruction
+        m_trianglesPass.reset();
+        // Now call base Close to stop loop and let renderer/context shut down
+        Engine::Application::Close();
+    }
 
     void OnUpdate(Engine::TimeStep ts) override
     {

@@ -50,6 +50,26 @@ namespace Engine
             // Draw one frame
             m_Impl->renderer->drawFrame();
         }
+
+        // Orderly shutdown after main loop exits
+        if (m_Impl->renderer)
+        {
+            try
+            {
+                m_Impl->renderer->cleanup();
+            }
+            catch (...)
+            { /* avoid throw on shutdown */
+            }
+            m_Impl->renderer.reset();
+        }
+        if (m_Impl->vkContext)
+        {
+            // SwapChain cleanup is handled inside VulkanContext::Shutdown()
+            m_Impl->vkContext->Shutdown();
+            m_Impl->vkContext.reset();
+        }
+        // Window will be destroyed with unique_ptr reset/destructor
     }
 
     void Application::handleWindowEvent(const std::string &name)
@@ -66,7 +86,24 @@ namespace Engine
     VulkanContext &Application::GetVulkanContext() { return *m_Impl->vkContext; }
     Renderer &Application::GetRenderer() { return *m_Impl->renderer; }
 
-    void Application::Close() { m_Impl->running = false; }
+    void Application::Close()
+    {
+        // Signal loop exit first
+        m_Impl->running = false;
+
+        // Proactively clean up renderer while device/context are still alive
+        if (m_Impl->renderer)
+        {
+            try
+            {
+                m_Impl->renderer->cleanup();
+            }
+            catch (...)
+            {
+            }
+            // Keep context alive until Run() completes and calls Shutdown()
+        }
+    }
 
     void Application::SetEventCallback(const EventCallbackFn &callback)
     {

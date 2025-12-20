@@ -105,4 +105,18 @@ namespace Engine
         return VK_SUCCESS;
     }
 
+    void DestroyVertexBuffer(VkDevice device, VertexBufferHandle &handle)
+    {
+        if (handle.buffer != VK_NULL_HANDLE)
+        {
+            vkDestroyBuffer(device, handle.buffer, nullptr);
+            handle.buffer = VK_NULL_HANDLE;
+        }
+        if (handle.memory != VK_NULL_HANDLE)
+        {
+            vkFreeMemory(device, handle.memory, nullptr);
+            handle.memory = VK_NULL_HANDLE;
+        }
+    }
+
 } // namespace Engine

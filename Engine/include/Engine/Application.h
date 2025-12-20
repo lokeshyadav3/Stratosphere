@@ -39,7 +39,7 @@ namespace Engine
         Renderer &GetRenderer();
 
         // Request application quit
-        void Close();
+        virtual void Close();
 
         // Event callback dispatching (simple)
         using EventCallbackFn = std::function<void(const std::string &eventName)>;

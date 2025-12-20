@@ -22,4 +22,7 @@ namespace Engine
         VkDeviceSize dataSize,
         VertexBufferHandle &handle);
 
+    // Destroy buffer and memory held by VertexBufferHandle
+    void DestroyVertexBuffer(VkDevice device, VertexBufferHandle &handle);
+
 } // namespace Engine
