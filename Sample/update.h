@@ -7,6 +7,12 @@
 #include "systems/SpatialIndexSystem.h"
 #include "systems/LocalAvoidanceSystem.h"
 #include "systems/MovementSystem.h"
+#include "systems/RenderSystem.h"
+
+namespace Engine
+{
+    class AssetManager;
+}
 
 namespace Sample
 {
@@ -17,6 +23,7 @@ namespace Sample
         void Initialize(Engine::ECS::ComponentRegistry &registry);
         void Update(Engine::ECS::ECSContext &ecs, float dtSeconds);
 
+        void SetAssetManager(Engine::AssetManager *assets);
         void SetGlobalMoveTarget(float x, float y, float z);
 
     private:
@@ -27,5 +34,7 @@ namespace Sample
         SpatialIndexSystem m_spatial{2.0f};
         LocalAvoidanceSystem m_avoidance{&m_spatial};
         MovementSystem m_movement;
+
+        RenderSystem m_renderMesh;
     };
 }

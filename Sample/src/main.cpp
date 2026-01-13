@@ -37,6 +37,9 @@ public:
             GetVulkanContext().GetGraphicsQueue(),
             GetVulkanContext().GetGraphicsQueueFamilyIndex());
 
+        // Allow gameplay systems to resolve RenderMesh handles to loaded assets.
+        m_systems.SetAssetManager(m_assets.get());
+
         setupECSFromPrefabs();
 
         // Systems can be initialized after prefabs are registered.
