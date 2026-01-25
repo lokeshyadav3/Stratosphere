@@ -26,6 +26,11 @@ namespace Engine
         outM[15] = 1.0f;
     }
 
+    static glm::mat4 identityMat4()
+    {
+        return glm::mat4(1.0f);
+    }
+
     SModelRenderPassModule::~SModelRenderPassModule()
     {
         // resources freed in onDestroy
@@ -213,6 +218,15 @@ namespace Engine
         std::memcpy(m_pc.model, m16, sizeof(float) * 16);
     }
 
+    void SModelRenderPassModule::setInstances(const glm::mat4 *instanceWorlds, uint32_t count)
+    {
+        m_instanceWorlds.clear();
+        if (!instanceWorlds || count == 0)
+            return;
+
+        m_instanceWorlds.assign(instanceWorlds, instanceWorlds + count);
+    }
+
     bool SModelRenderPassModule::refreshModelMatrix()
     {
         if (!m_assets || !m_model.isValid())
@@ -309,6 +323,7 @@ namespace Engine
     {
         (void)fbs;
         m_device = ctx.GetDevice();
+        m_physicalDevice = ctx.GetPhysicalDevice();
         m_extent = ctx.GetSwapChain() ? ctx.GetSwapChain()->GetExtent() : VkExtent2D{};
 
         // Default model matrix: center/scale from bounds if available
@@ -321,6 +336,11 @@ namespace Engine
         if (!createCameraResources(ctx, frameCount > 0 ? frameCount : 1))
         {
             throw std::runtime_error("SModelRenderPassModule: failed to create camera resources");
+        }
+
+        if (!createInstanceResources(ctx, frameCount > 0 ? frameCount : 1))
+        {
+            throw std::runtime_error("SModelRenderPassModule: failed to create instance resources");
         }
 
         if (!createMaterialResources(ctx))
@@ -506,6 +526,179 @@ namespace Engine
         }
     }
 
+    bool SModelRenderPassModule::createInstanceResources(VulkanContext &ctx, size_t frameCount)
+    {
+        destroyInstanceResources();
+
+        if (frameCount == 0)
+            frameCount = 1;
+
+        auto findMemoryType = [&](uint32_t typeFilter, VkMemoryPropertyFlags properties, uint32_t &typeIndex) -> bool
+        {
+            VkPhysicalDeviceMemoryProperties memProps{};
+            vkGetPhysicalDeviceMemoryProperties(ctx.GetPhysicalDevice(), &memProps);
+            for (uint32_t i = 0; i < memProps.memoryTypeCount; ++i)
+            {
+                if ((typeFilter & (1u << i)) && (memProps.memoryTypes[i].propertyFlags & properties) == properties)
+                {
+                    typeIndex = i;
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        m_instanceFrames.resize(frameCount);
+
+        // Start with a modest default capacity; grows on demand.
+        constexpr uint32_t kDefaultCapacity = 256;
+        const VkDeviceSize bufSize = static_cast<VkDeviceSize>(kDefaultCapacity) * sizeof(glm::mat4);
+
+        for (size_t i = 0; i < frameCount; ++i)
+        {
+            InstanceFrame &fr = m_instanceFrames[i];
+            fr.capacity = kDefaultCapacity;
+
+            VkBufferCreateInfo binfo{};
+            binfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+            binfo.size = bufSize;
+            binfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+            binfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+            if (vkCreateBuffer(ctx.GetDevice(), &binfo, nullptr, &fr.buffer) != VK_SUCCESS)
+                return false;
+
+            VkMemoryRequirements memReq{};
+            vkGetBufferMemoryRequirements(ctx.GetDevice(), fr.buffer, &memReq);
+
+            VkMemoryAllocateInfo mai{};
+            mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            mai.allocationSize = memReq.size;
+            uint32_t memType = 0;
+            if (!findMemoryType(memReq.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, memType))
+                return false;
+            mai.memoryTypeIndex = memType;
+
+            if (vkAllocateMemory(ctx.GetDevice(), &mai, nullptr, &fr.memory) != VK_SUCCESS)
+                return false;
+
+            vkBindBufferMemory(ctx.GetDevice(), fr.buffer, fr.memory, 0);
+
+            fr.mapped = nullptr;
+            if (vkMapMemory(ctx.GetDevice(), fr.memory, 0, VK_WHOLE_SIZE, 0, &fr.mapped) != VK_SUCCESS)
+                return false;
+        }
+
+        return true;
+    }
+
+    void SModelRenderPassModule::destroyInstanceResources()
+    {
+        if (m_device == VK_NULL_HANDLE)
+            return;
+
+        for (auto &fr : m_instanceFrames)
+        {
+            if (fr.mapped && fr.memory != VK_NULL_HANDLE)
+            {
+                vkUnmapMemory(m_device, fr.memory);
+                fr.mapped = nullptr;
+            }
+
+            if (fr.buffer != VK_NULL_HANDLE)
+            {
+                vkDestroyBuffer(m_device, fr.buffer, nullptr);
+                fr.buffer = VK_NULL_HANDLE;
+            }
+
+            if (fr.memory != VK_NULL_HANDLE)
+            {
+                vkFreeMemory(m_device, fr.memory, nullptr);
+                fr.memory = VK_NULL_HANDLE;
+            }
+
+            fr.capacity = 0;
+        }
+        m_instanceFrames.clear();
+    }
+
+    bool SModelRenderPassModule::ensureInstanceCapacity(InstanceFrame &frame, uint32_t needed)
+    {
+        if (needed <= frame.capacity)
+            return true;
+        if (m_device == VK_NULL_HANDLE || m_physicalDevice == VK_NULL_HANDLE)
+            return false;
+
+        // Grow by doubling.
+        uint32_t newCap = std::max<uint32_t>(1u, frame.capacity);
+        while (newCap < needed)
+            newCap *= 2u;
+
+        if (frame.mapped && frame.memory != VK_NULL_HANDLE)
+        {
+            vkUnmapMemory(m_device, frame.memory);
+            frame.mapped = nullptr;
+        }
+        if (frame.buffer != VK_NULL_HANDLE)
+        {
+            vkDestroyBuffer(m_device, frame.buffer, nullptr);
+            frame.buffer = VK_NULL_HANDLE;
+        }
+        if (frame.memory != VK_NULL_HANDLE)
+        {
+            vkFreeMemory(m_device, frame.memory, nullptr);
+            frame.memory = VK_NULL_HANDLE;
+        }
+
+        auto findMemoryType = [&](uint32_t typeFilter, VkMemoryPropertyFlags properties, uint32_t &typeIndex) -> bool
+        {
+            VkPhysicalDeviceMemoryProperties memProps{};
+            vkGetPhysicalDeviceMemoryProperties(m_physicalDevice, &memProps);
+            for (uint32_t i = 0; i < memProps.memoryTypeCount; ++i)
+            {
+                if ((typeFilter & (1u << i)) && (memProps.memoryTypes[i].propertyFlags & properties) == properties)
+                {
+                    typeIndex = i;
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        const VkDeviceSize bufSize = static_cast<VkDeviceSize>(newCap) * sizeof(glm::mat4);
+        VkBufferCreateInfo binfo{};
+        binfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        binfo.size = bufSize;
+        binfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+        binfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        if (vkCreateBuffer(m_device, &binfo, nullptr, &frame.buffer) != VK_SUCCESS)
+            return false;
+
+        VkMemoryRequirements memReq{};
+        vkGetBufferMemoryRequirements(m_device, frame.buffer, &memReq);
+
+        VkMemoryAllocateInfo mai{};
+        mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        mai.allocationSize = memReq.size;
+        uint32_t memType = 0;
+        if (!findMemoryType(memReq.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, memType))
+            return false;
+        mai.memoryTypeIndex = memType;
+
+        if (vkAllocateMemory(m_device, &mai, nullptr, &frame.memory) != VK_SUCCESS)
+            return false;
+
+        vkBindBufferMemory(m_device, frame.buffer, frame.memory, 0);
+
+        frame.mapped = nullptr;
+        if (vkMapMemory(m_device, frame.memory, 0, VK_WHOLE_SIZE, 0, &frame.mapped) != VK_SUCCESS)
+            return false;
+
+        frame.capacity = newCap;
+        return true;
+    }
+
     void SModelRenderPassModule::createPipelines(VulkanContext &ctx, VkRenderPass pass)
     {
         if (m_cameraSetLayout == VK_NULL_HANDLE)
@@ -565,22 +758,34 @@ namespace Engine
 
         pci.shaderStages = {vs, fs};
 
-        // Vertex input: VertexPNTT (48 bytes)
-        VkVertexInputBindingDescription bindingDesc{};
-        bindingDesc.binding = 0;
-        bindingDesc.stride = 48;
-        bindingDesc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        // Vertex input:
+        //  binding 0: VertexPNTT (48 bytes)
+        //  binding 1: Instance mat4 (64 bytes), advanced per-instance
+        std::array<VkVertexInputBindingDescription, 2> bindingDescs{};
+        bindingDescs[0].binding = 0;
+        bindingDescs[0].stride = 48;
+        bindingDescs[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-        std::array<VkVertexInputAttributeDescription, 4> attrs{};
+        bindingDescs[1].binding = 1;
+        bindingDescs[1].stride = sizeof(glm::mat4);
+        bindingDescs[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+        std::array<VkVertexInputAttributeDescription, 8> attrs{};
         attrs[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0};     // pos
         attrs[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT, 12};    // normal
         attrs[2] = {2, 0, VK_FORMAT_R32G32_SFLOAT, 24};       // uv0
         attrs[3] = {3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 32}; // tangent
 
+        // mat4 consumes 4 locations (vec4 columns)
+        attrs[4] = {4, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 0};
+        attrs[5] = {5, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 16};
+        attrs[6] = {6, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 32};
+        attrs[7] = {7, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 48};
+
         VkPipelineVertexInputStateCreateInfo vi{};
         vi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        vi.vertexBindingDescriptionCount = 1;
-        vi.pVertexBindingDescriptions = &bindingDesc;
+        vi.vertexBindingDescriptionCount = static_cast<uint32_t>(bindingDescs.size());
+        vi.pVertexBindingDescriptions = bindingDescs.data();
         vi.vertexAttributeDescriptionCount = static_cast<uint32_t>(attrs.size());
         vi.pVertexAttributeDescriptions = attrs.data();
         pci.vertexInput = vi;
@@ -687,6 +892,28 @@ namespace Engine
             }
         }
 
+        // Update instance buffer for this frame
+        const uint32_t instIndex = (!m_instanceFrames.empty()) ? (frameCtx.frameIndex % static_cast<uint32_t>(m_instanceFrames.size())) : 0;
+        InstanceFrame *instFrame = (!m_instanceFrames.empty()) ? &m_instanceFrames[instIndex] : nullptr;
+
+        const uint32_t instanceCount = m_instanceWorlds.empty() ? 1u : static_cast<uint32_t>(m_instanceWorlds.size());
+        if (instFrame)
+        {
+            if (!ensureInstanceCapacity(*instFrame, instanceCount))
+                return;
+
+            const glm::mat4 *src = m_instanceWorlds.empty() ? nullptr : m_instanceWorlds.data();
+            if (src)
+            {
+                std::memcpy(instFrame->mapped, src, sizeof(glm::mat4) * instanceCount);
+            }
+            else
+            {
+                const glm::mat4 I = identityMat4();
+                std::memcpy(instFrame->mapped, &I, sizeof(glm::mat4));
+            }
+        }
+
         // Pass ordering like glTF: 0=OPAQUE,1=MASK,2=BLEND
         for (uint32_t pass = 0; pass < 3; ++pass)
         {
@@ -703,6 +930,12 @@ namespace Engine
             if (camFrame && camFrame->set != VK_NULL_HANDLE)
             {
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 1, &camFrame->set, 0, nullptr);
+            }
+
+            if (instFrame && instFrame->buffer != VK_NULL_HANDLE)
+            {
+                VkDeviceSize instOffset = 0;
+                vkCmdBindVertexBuffers(cmd, 1, 1, &instFrame->buffer, &instOffset);
             }
 
             if (!model->nodes.empty())
@@ -751,7 +984,7 @@ namespace Engine
                         vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &vbOffset);
                         vkCmdBindIndexBuffer(cmd, ib, 0, mesh->getIndexType());
 
-                        vkCmdDrawIndexed(cmd, prim.indexCount, 1, prim.firstIndex, prim.vertexOffset, 0);
+                        vkCmdDrawIndexed(cmd, prim.indexCount, instanceCount, prim.firstIndex, prim.vertexOffset, 0);
                     }
                 }
             }
@@ -792,7 +1025,7 @@ namespace Engine
                     vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &vbOffset);
                     vkCmdBindIndexBuffer(cmd, ib, 0, mesh->getIndexType());
 
-                    vkCmdDrawIndexed(cmd, prim.indexCount, 1, prim.firstIndex, prim.vertexOffset, 0);
+                    vkCmdDrawIndexed(cmd, prim.indexCount, instanceCount, prim.firstIndex, prim.vertexOffset, 0);
                 }
             }
         }
@@ -810,6 +1043,7 @@ namespace Engine
             return;
 
         destroyCameraResources();
+        destroyInstanceResources();
         destroyMaterialResources();
 
         m_pipelineOpaque.destroy(m_device);

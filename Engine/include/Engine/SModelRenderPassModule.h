@@ -34,6 +34,10 @@ namespace Engine
 
         void setCamera(Camera *cam) { m_camera = cam; }
 
+        // Per-instance world transforms for instanced drawing.
+        // If not called (or count==0), the module defaults to drawing 1 instance at identity.
+        void setInstances(const glm::mat4 *instanceWorlds, uint32_t count);
+
         // Column-major 4x4 matrix (16 floats). Defaults to identity.
         void setModelMatrix(const float *m16);
 
@@ -43,6 +47,14 @@ namespace Engine
         void onDestroy(VulkanContext &ctx) override;
 
     private:
+        struct InstanceFrame
+        {
+            VkBuffer buffer = VK_NULL_HANDLE;
+            VkDeviceMemory memory = VK_NULL_HANDLE;
+            void *mapped = nullptr;
+            uint32_t capacity = 0;
+        };
+
         struct PushConstantsModel
         {
             float model[16];
@@ -69,6 +81,10 @@ namespace Engine
         bool createCameraResources(VulkanContext &ctx, size_t frameCount);
         void destroyCameraResources();
 
+        bool createInstanceResources(VulkanContext &ctx, size_t frameCount);
+        void destroyInstanceResources();
+        bool ensureInstanceCapacity(InstanceFrame &frame, uint32_t needed);
+
         bool createMaterialResources(VulkanContext &ctx);
         void destroyMaterialResources();
         VkDescriptorSet getOrCreateMaterialSet(MaterialHandle h, const MaterialAsset *mat);
@@ -77,6 +93,7 @@ namespace Engine
 
     private:
         VkDevice m_device = VK_NULL_HANDLE;
+        VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
         VkExtent2D m_extent{};
 
         AssetManager *m_assets = nullptr;
@@ -97,6 +114,9 @@ namespace Engine
         VkDescriptorSetLayout m_materialSetLayout = VK_NULL_HANDLE;
         VkDescriptorPool m_materialPool = VK_NULL_HANDLE;
         std::unordered_map<uint64_t, VkDescriptorSet> m_materialSetCache;
+
+        std::vector<InstanceFrame> m_instanceFrames;
+        std::vector<glm::mat4> m_instanceWorlds;
 
         TextureAsset m_fallbackWhiteTexture;
 

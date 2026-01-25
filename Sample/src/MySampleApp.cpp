@@ -1,6 +1,5 @@
 #include "MySampleApp.h"
 
-#include "Engine/SModelRenderPassModule.h"
 #include "Engine/VulkanContext.h"
 #include "Engine/Window.h"
 
@@ -9,13 +8,13 @@
 #include "ECS/ECSContext.h"
 
 #include "ScenarioSpawner.h"
-#include "VerifyLoadSModel.h"
-
 #include "assets/AssetManager.h"
 
 #include <filesystem>
 #include <iostream>
 #include <sstream>
+
+#include <glm/gtc/matrix_transform.hpp>
 
 MySampleApp::MySampleApp() : Engine::Application()
 {
@@ -42,21 +41,10 @@ MySampleApp::MySampleApp() : Engine::Application()
     win.GetCursorPosition(mx, my);
     m_lastMouse = {static_cast<float>(mx), static_cast<float>(my)};
 
-    // Load and validate a sample model.
-    m_testModel = Sample::VerifyLoadSModel(*m_assets, "assets/Knight/Knight.smodel");
-
-    // Render the loaded .smodel as a single object.
-    if (m_testModel.isValid())
-    {
-        m_smodelPass = std::make_shared<Engine::SModelRenderPassModule>();
-        m_smodelPass->setAssets(m_assets.get());
-        m_smodelPass->setModel(m_testModel);
-        m_smodelPass->setCamera(&m_camera);
-        GetRenderer().registerPass(m_smodelPass);
-    }
-
     // Allow gameplay systems to resolve RenderMesh handles to loaded assets.
     m_systems.SetAssetManager(m_assets.get());
+    m_systems.SetRenderer(&GetRenderer());
+    m_systems.SetCamera(&m_camera);
 
     setupECSFromPrefabs();
 
@@ -75,12 +63,7 @@ void MySampleApp::Close()
     vkDeviceWaitIdle(GetVulkanContext().GetDevice());
 
     if (m_assets)
-    {
-        m_assets->release(m_testModel);
         m_assets->garbageCollect();
-    }
-
-    m_smodelPass.reset();
 
     Engine::Application::Close();
 }

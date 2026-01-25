@@ -2,7 +2,6 @@
 
 #include "Engine/Application.h"
 #include "Engine/Camera.h"
-#include "assets/Handles.h"
 
 #include "update.h"
 
@@ -13,7 +12,6 @@
 namespace Engine
 {
     class AssetManager;
-    class SModelRenderPassModule;
 }
 
 class MySampleApp : public Engine::Application
@@ -44,8 +42,6 @@ private:
     };
 
     std::unique_ptr<Engine::AssetManager> m_assets;
-
-    std::shared_ptr<Engine::SModelRenderPassModule> m_smodelPass;
     RTSCameraController m_rtsCam;
     glm::vec2 m_lastMouse{0.0f, 0.0f};
     bool m_isPanning = false;
@@ -53,6 +49,4 @@ private:
     Engine::Camera m_camera;
 
     Sample::SystemRunner m_systems;
-
-    Engine::ModelHandle m_testModel{};
 };

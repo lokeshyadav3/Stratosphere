@@ -64,6 +64,8 @@ set(ENGINE_SHADER_SOURCES
     ${ENGINE_SHADER_DIR}/triangle.frag
     ${ENGINE_SHADER_DIR}/mesh.vert
     ${ENGINE_SHADER_DIR}/mesh.frag
+    ${ENGINE_SHADER_DIR}/smodel.vert
+    ${ENGINE_SHADER_DIR}/smodel.frag
 )
 
 set(ENGINE_SHADER_SPV)

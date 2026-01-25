@@ -47,6 +47,6 @@
         }
     },
     "visual": {
-        "model": "assets/ObjModels/units/light_infantry.smodel"
+        "model": "assets/Knight/Knight.smodel"
     }
 }

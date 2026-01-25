@@ -127,7 +127,7 @@ namespace Engine::ECS
             }
         }
 
-        // Optional visuals: if a model is present, load it and apply a RenderMesh default.
+        // Optional visuals: if a model is present, load it and apply a RenderModel default.
         // JSON schema: "visual": { "model": "path" , ... }
         {
             std::regex re_model(R"re("visual"\s*:\s*\{[\s\S]*?"model"\s*:\s*"([^"]+)")re");
@@ -140,7 +140,7 @@ namespace Engine::ECS
                     Engine::ModelHandle h = assets.loadModel(modelPath);
                     if (h.isValid())
                     {
-                        const uint32_t rmId = registry.ensureId("RenderMesh");
+                        const uint32_t rmId = registry.ensureId("RenderModel");
                         p.signature.set(rmId);
 
                         RenderModel rm{};
