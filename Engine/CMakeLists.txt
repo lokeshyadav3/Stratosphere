@@ -44,17 +44,14 @@ add_library(Engine STATIC
     src/MeshRenderPassModule.cpp
     src/Pipeline.cpp
     src/BufferUtils.cpp
+    src/camera.cpp
     src/SMeshLoader.cpp
     src/AssetManager.cpp
     src/MeshAssets.cpp
     src/ImageUtils.cpp
     src/SModelLoader.cpp
+    src/SModelRenderPassModule.cpp
     src/TextureAsset.cpp
-<<<<<<< HEAD
-=======
-    src/ImGuiPass.cpp
-    src/camera.cpp
->>>>>>> 45ad58b (Rendered models correctly and added some camera controls)
 )
 
 # --- Shaders: compile GLSL -> SPIR-V (optional but recommended) ---
