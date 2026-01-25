@@ -14,6 +14,14 @@ endif()
 # Make FetchContent available
 include(FetchContent)
 
+# Header-only glm (fetched once for all subprojects)
+FetchContent_Declare(
+  glm
+  GIT_REPOSITORY https://github.com/g-truc/glm.git
+  GIT_TAG 1.0.1
+)
+FetchContent_MakeAvailable(glm)
+
 # Add subprojects
 add_subdirectory(Engine)
 add_subdirectory(Sample)

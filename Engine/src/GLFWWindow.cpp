@@ -82,6 +82,14 @@ namespace Engine
                 const bool down = (action == GLFW_PRESS);
                 if (button == GLFW_MOUSE_BUTTON_RIGHT) d->EventCallback(down ? "MouseButtonRightDown" : "MouseButtonRightUp");
                 if (button == GLFW_MOUSE_BUTTON_LEFT)  d->EventCallback(down ? "MouseButtonLeftDown" : "MouseButtonLeftUp"); });
+
+            glfwSetScrollCallback(data->Window, [](GLFWwindow *wnd, double xoff, double yoff)
+                                  {
+                auto d = static_cast<GLFWWindowData*>(glfwGetWindowUserPointer(wnd));
+                if (!d || !d->EventCallback) return;
+                std::ostringstream oss;
+                oss << "MouseScroll " << xoff << " " << yoff;
+                d->EventCallback(oss.str()); });
         }
 
         virtual ~GLFWWindow() override

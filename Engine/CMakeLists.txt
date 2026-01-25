@@ -50,6 +50,11 @@ add_library(Engine STATIC
     src/ImageUtils.cpp
     src/SModelLoader.cpp
     src/TextureAsset.cpp
+<<<<<<< HEAD
+=======
+    src/ImGuiPass.cpp
+    src/camera.cpp
+>>>>>>> 45ad58b (Rendered models correctly and added some camera controls)
 )
 
 # --- Shaders: compile GLSL -> SPIR-V (optional but recommended) ---
@@ -106,6 +111,7 @@ target_include_directories(Engine
 target_link_libraries(Engine
     PUBLIC
         Vulkan::Vulkan
+        glm
     PRIVATE
         glfw
         nlohmann_json::nlohmann_json

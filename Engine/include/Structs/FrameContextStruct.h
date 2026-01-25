@@ -8,4 +8,5 @@ struct FrameContext
     VkSemaphore imageAcquiredSemaphore = VK_NULL_HANDLE;
     VkSemaphore renderFinishedSemaphore = VK_NULL_HANDLE;
     VkFence inFlightFence = VK_NULL_HANDLE;
+    uint32_t frameIndex = 0;
 };

@@ -276,6 +276,7 @@ namespace Engine
             return;
 
         FrameContext &frame = m_frames[m_currentFrame];
+        frame.frameIndex = m_currentFrame;
 
         // Wait for previous frame to finish
         VkResult r = vkWaitForFences(m_device, 1, &frame.inFlightFence, VK_TRUE, UINT64_MAX);
