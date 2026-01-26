@@ -5,13 +5,17 @@
 
 #include "update.h"
 
+#include "assets/Handles.h"
+
 #include <glm/glm.hpp>
 
 #include <memory>
+#include <vector>
 
 namespace Engine
 {
     class AssetManager;
+    class GroundPlaneRenderPassModule;
 }
 
 class MySampleApp : public Engine::Application
@@ -56,6 +60,10 @@ private:
     bool m_panJustStarted = false;
     float m_scrollDelta = 0.0f;
     Engine::Camera m_camera;
+
+    // Simple background ground plane
+    Engine::TextureHandle m_groundTexture;
+    std::shared_ptr<Engine::GroundPlaneRenderPassModule> m_groundPass;
 
     Sample::SystemRunner m_systems;
 };

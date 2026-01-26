@@ -6,8 +6,9 @@
 #include <utility>
 #include <cstring>
 #include <algorithm>
+#include <unordered_set>
 
-const float TARGET = 5.0f; // Target size of models after scaling
+const float TARGET = 10.0f; // Target size of models after scaling
 namespace Engine
 {
     // ------------------------------------------------------------
@@ -535,6 +536,11 @@ namespace Engine
         std::vector<MeshHandle> meshDeps;
         std::vector<MaterialHandle> matDeps;
 
+        std::unordered_set<uint64_t> meshDepIds;
+        std::unordered_set<uint64_t> matDepIds;
+        meshDepIds.reserve(static_cast<size_t>(view.primitiveCount()));
+        matDepIds.reserve(static_cast<size_t>(view.primitiveCount()));
+
         for (uint32_t i = 0; i < view.primitiveCount(); i++)
         {
             const auto &p = view.primitives[i];
@@ -549,11 +555,14 @@ namespace Engine
             model->primitives[i] = prim;
 
             // Dependency refs:
-            // addRef once per primitive usage (fine for now).
             if (prim.mesh.isValid())
             {
-                addRef(prim.mesh);
-                meshDeps.push_back(prim.mesh);
+                // AddRef once per unique dependency (avoid duplicates in dep lists)
+                if (meshDepIds.insert(prim.mesh.id).second)
+                {
+                    addRef(prim.mesh);
+                    meshDeps.push_back(prim.mesh);
+                }
 
                 // Expand model bounds from mesh bounds
                 MeshAsset *mesh = getMesh(prim.mesh);
@@ -582,8 +591,12 @@ namespace Engine
             }
             if (prim.material.isValid())
             {
-                addRef(prim.material);
-                matDeps.push_back(prim.material);
+                // AddRef once per unique dependency (avoid duplicates in dep lists)
+                if (matDepIds.insert(prim.material.id).second)
+                {
+                    addRef(prim.material);
+                    matDeps.push_back(prim.material);
+                }
             }
         }
 

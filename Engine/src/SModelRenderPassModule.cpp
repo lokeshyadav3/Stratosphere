@@ -244,6 +244,7 @@ namespace Engine
 
         // Prefer precomputed bounds/scale from AssetManager
         float center[3] = {0.0f, 0.0f, 0.0f};
+        float minY = 0.0f;
         float scale = 1.0f;
         bool hasBounds = model->hasBounds;
 
@@ -252,6 +253,7 @@ namespace Engine
             center[0] = model->center[0];
             center[1] = model->center[1];
             center[2] = model->center[2];
+            minY = model->boundsMin[1];
             scale = model->fitScale;
         }
         else
@@ -291,6 +293,8 @@ namespace Engine
                 center[1] = 0.5f * (bmin[1] + bmax[1]);
                 center[2] = 0.5f * (bmin[2] + bmax[2]);
 
+                minY = bmin[1];
+
                 const float sizeX = bmax[0] - bmin[0];
                 const float sizeY = bmax[1] - bmin[1];
                 const float sizeZ = bmax[2] - bmin[2];
@@ -308,13 +312,15 @@ namespace Engine
             return false;
         }
 
-        // Build M = S * T where T translates -center
+        // Build M = S * T:
+        // - center in XZ so the model rotates nicely around its middle
+        // - align base (AABB minY) to y=0 so characters sit on the ground
         setIdentity(m_pc.model);
         m_pc.model[0] = scale;
         m_pc.model[5] = scale;
         m_pc.model[10] = scale;
         m_pc.model[12] = -center[0] * scale;
-        m_pc.model[13] = -center[1] * scale;
+        m_pc.model[13] = -minY * scale;
         m_pc.model[14] = -center[2] * scale;
         return true;
     }

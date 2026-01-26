@@ -42,6 +42,7 @@ add_library(Engine STATIC
     src/Renderer.cpp
     src/TrianglesRenderPassModule.cpp
     src/MeshRenderPassModule.cpp
+    src/GroundPlaneRenderPassModule.cpp
     src/Pipeline.cpp
     src/BufferUtils.cpp
     src/camera.cpp

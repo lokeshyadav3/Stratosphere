@@ -10,6 +10,8 @@
 #include "ScenarioSpawner.h"
 #include "assets/AssetManager.h"
 
+#include "Engine/GroundPlaneRenderPassModule.h"
+
 #include <filesystem>
 #include <iostream>
 #include <sstream>
@@ -32,7 +34,7 @@ MySampleApp::MySampleApp() : Engine::Application()
     m_rtsCam.pitchDeg = -55.0f;
     m_rtsCam.height = 70.0f;
     m_rtsCam.minHeight = 5.0f;
-    m_rtsCam.maxHeight = 250.0f;
+    m_rtsCam.maxHeight = 100.0f;
 
     auto &win = GetWindow();
     const float aspect = static_cast<float>(win.GetWidth()) / static_cast<float>(win.GetHeight());
@@ -47,6 +49,47 @@ MySampleApp::MySampleApp() : Engine::Application()
     m_systems.SetAssetManager(m_assets.get());
     m_systems.SetRenderer(&GetRenderer());
     m_systems.SetCamera(&m_camera);
+
+    // ------------------------------------------------------------
+    // Background: simple ground-plane pass using ground baseColor tex
+    // ------------------------------------------------------------
+    {
+        Engine::ModelHandle groundModel = m_assets->loadModel("assets/Ground/scene.smodel");
+        if (groundModel.isValid())
+        {
+            if (Engine::ModelAsset *m = m_assets->getModel(groundModel))
+            {
+                if (!m->primitives.empty())
+                {
+                    const Engine::MaterialHandle mh = m->primitives[0].material;
+                    if (Engine::MaterialAsset *mat = m_assets->getMaterial(mh))
+                    {
+                        if (mat->baseColorTexture.isValid())
+                            m_groundTexture = mat->baseColorTexture;
+                    }
+                }
+            }
+
+            // Keep texture alive even if the model/material are collected later.
+            if (m_groundTexture.isValid())
+                m_assets->addRef(m_groundTexture);
+
+            // We only needed the texture; let the model be GC'd.
+            m_assets->release(groundModel);
+        }
+
+        if (m_groundTexture.isValid())
+        {
+            m_groundPass = std::make_shared<Engine::GroundPlaneRenderPassModule>();
+            m_groundPass->setAssets(m_assets.get());
+            m_groundPass->setCamera(&m_camera);
+            m_groundPass->setBaseColorTexture(m_groundTexture);
+            m_groundPass->setHalfSize(350.0f);
+            m_groundPass->setTileWorldSize(5.0f);
+            m_groundPass->setEnabled(true);
+            GetRenderer().registerPass(m_groundPass);
+        }
+    }
 
     setupECSFromPrefabs();
 
@@ -65,7 +108,11 @@ void MySampleApp::Close()
     vkDeviceWaitIdle(GetVulkanContext().GetDevice());
 
     if (m_assets)
+    {
+        if (m_groundTexture.isValid())
+            m_assets->release(m_groundTexture);
         m_assets->garbageCollect();
+    }
 
     Engine::Application::Close();
 }
@@ -92,29 +139,29 @@ void MySampleApp::OnUpdate(Engine::TimeStep ts)
         }
         else
         {
-        glm::vec3 forward;
-        forward.x = std::cos(glm::radians(m_rtsCam.yawDeg)) * std::cos(glm::radians(m_rtsCam.pitchDeg));
-        forward.y = std::sin(glm::radians(m_rtsCam.pitchDeg));
-        forward.z = std::sin(glm::radians(m_rtsCam.yawDeg)) * std::cos(glm::radians(m_rtsCam.pitchDeg));
-        forward = glm::normalize(forward);
+            glm::vec3 forward;
+            forward.x = std::cos(glm::radians(m_rtsCam.yawDeg)) * std::cos(glm::radians(m_rtsCam.pitchDeg));
+            forward.y = std::sin(glm::radians(m_rtsCam.pitchDeg));
+            forward.z = std::sin(glm::radians(m_rtsCam.yawDeg)) * std::cos(glm::radians(m_rtsCam.pitchDeg));
+            forward = glm::normalize(forward);
 
-        const glm::vec3 worldUp{0.0f, 1.0f, 0.0f};
-        const glm::vec3 right = glm::normalize(glm::cross(forward, worldUp));
+            const glm::vec3 worldUp{0.0f, 1.0f, 0.0f};
+            const glm::vec3 right = glm::normalize(glm::cross(forward, worldUp));
 
-        glm::vec3 forwardXZ{forward.x, 0.0f, forward.z};
-        glm::vec3 rightXZ{right.x, 0.0f, right.z};
+            glm::vec3 forwardXZ{forward.x, 0.0f, forward.z};
+            glm::vec3 rightXZ{right.x, 0.0f, right.z};
 
-        const float forwardLen2 = glm::dot(forwardXZ, forwardXZ);
-        const float rightLen2 = glm::dot(rightXZ, rightXZ);
-        if (forwardLen2 > 1e-6f)
-            forwardXZ *= 1.0f / std::sqrt(forwardLen2);
-        if (rightLen2 > 1e-6f)
-            rightXZ *= 1.0f / std::sqrt(rightLen2);
+            const float forwardLen2 = glm::dot(forwardXZ, forwardXZ);
+            const float rightLen2 = glm::dot(rightXZ, rightXZ);
+            if (forwardLen2 > 1e-6f)
+                forwardXZ *= 1.0f / std::sqrt(forwardLen2);
+            if (rightLen2 > 1e-6f)
+                rightXZ *= 1.0f / std::sqrt(rightLen2);
 
-        const float panScale = m_rtsCam.basePanSpeed * m_rtsCam.height;
-        // Update focus (not position). Mouse delta is in pixels.
-        m_rtsCam.focus += (-rightXZ * delta.x + forwardXZ * delta.y) * panScale;
-        m_rtsCam.focus.y = 0.0f;
+            const float panScale = m_rtsCam.basePanSpeed * m_rtsCam.height;
+            // Update focus (not position). Mouse delta is in pixels.
+            m_rtsCam.focus += (-rightXZ * delta.x + forwardXZ * delta.y) * panScale;
+            m_rtsCam.focus.y = 0.0f;
         }
     }
 
