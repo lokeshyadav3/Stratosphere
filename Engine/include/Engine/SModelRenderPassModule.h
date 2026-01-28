@@ -42,6 +42,11 @@ namespace Engine
         // Must be called when using per-entity animation (palette indexed by gl_InstanceIndex).
         void setNodePalette(const glm::mat4 *nodeGlobals, uint32_t instanceCount, uint32_t nodeCount);
 
+        // Per-instance joint matrices, flattened as [instance][joint].
+        // Joint indices in the vertex stream are local to a skin; the shader uses push constants
+        // to offset into this global joint palette.
+        void setJointPalette(const glm::mat4 *jointMatrices, uint32_t instanceCount, uint32_t jointCount);
+
         // Column-major 4x4 matrix (16 floats). Defaults to identity.
         void setModelMatrix(const float *m16);
 
@@ -68,11 +73,23 @@ namespace Engine
             // Which node is being drawn; vertex shader fetches from palette[gl_InstanceIndex][nodeIndex]
             uint32_t nodeIndex = 0;
             uint32_t nodeCount = 0;
+
+            // Pad to match GLSL uvec4 nodeInfo
             uint32_t _pad0 = 0;
             uint32_t _pad1 = 0;
+
+            // Skinning info:
+            // - skinBaseJoint: base offset into joint palette for this primitive's skin
+            // - skinJointCount: number of joints in this skin (0 => unskinned)
+            // - jointPaletteStride: total joint count for this model (used to stride per instance)
+            // - flags: reserved
+            uint32_t skinBaseJoint = 0;
+            uint32_t skinJointCount = 0;
+            uint32_t jointPaletteStride = 0;
+            uint32_t flags = 0;
         };
 
-        static_assert(sizeof(PushConstantsModel) == 112, "PushConstantsModel must match smodel.vert push constant block size");
+        static_assert(sizeof(PushConstantsModel) == 128, "PushConstantsModel must match smodel.vert push constant block size");
         static_assert(offsetof(PushConstantsModel, nodeIndex) == 96, "PushConstantsModel::nodeIndex offset must match GLSL");
 
         struct CameraUBO
@@ -91,6 +108,11 @@ namespace Engine
             VkDeviceMemory paletteMemory = VK_NULL_HANDLE;
             void *paletteMapped = nullptr;
             uint32_t paletteCapacityMatrices = 0;
+
+            VkBuffer jointPaletteBuffer = VK_NULL_HANDLE;
+            VkDeviceMemory jointPaletteMemory = VK_NULL_HANDLE;
+            void *jointPaletteMapped = nullptr;
+            uint32_t jointPaletteCapacityMatrices = 0;
         };
 
         void destroyResources();
@@ -99,6 +121,7 @@ namespace Engine
         bool createCameraResources(VulkanContext &ctx, size_t frameCount);
         void destroyCameraResources();
         bool ensurePaletteCapacity(CameraFrame &frame, uint32_t neededMatrices);
+        bool ensureJointPaletteCapacity(CameraFrame &frame, uint32_t neededMatrices);
 
         bool createInstanceResources(VulkanContext &ctx, size_t frameCount);
         void destroyInstanceResources();
@@ -139,6 +162,8 @@ namespace Engine
 
         // Flattened node globals uploaded to a per-frame SSBO
         std::vector<glm::mat4> m_nodePalette;
+        std::vector<glm::mat4> m_jointPalette;
+        uint32_t m_jointPaletteJointCount = 0;
         uint32_t m_paletteInstanceCount = 0;
         uint32_t m_paletteNodeCount = 0;
 

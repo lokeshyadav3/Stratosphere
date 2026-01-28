@@ -88,6 +88,23 @@ if (STRATO_PROCESS_SAMPLE_GLTF)
 endif()
 
 
+# Copy cooked SMODEL assets next to the executable for relative imports.
+# NOTE: A POST_BUILD copy only runs when SampleApp relinks; when only assets change,
+# the executable might be up-to-date and the runtime assets would stay stale.
+if (STRATO_PROCESS_SAMPLE_GLTF)
+    add_custom_target(CopySampleSMODELAssets ALL
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            $<TARGET_FILE_DIR:SampleApp>/assets
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/Sample/assets/cooked/GltfModels
+            $<TARGET_FILE_DIR:SampleApp>/assets
+        DEPENDS ProcessSampleGLTFAssets
+        COMMENT "Copying Sample SMODEL assets to runtime output"
+    )
+    add_dependencies(SampleApp CopySampleSMODELAssets)
+endif()
+
+
 # Copy cooked SMESH assets next to the executable for relative imports
     add_custom_command(TARGET SampleApp POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -99,15 +116,7 @@ endif()
     )
 
 
-# Copy cooked SMODEL assets next to the executable for relative imports
-add_custom_command(TARGET SampleApp POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory
-        $<TARGET_FILE_DIR:SampleApp>/assets
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_SOURCE_DIR}/Sample/assets/cooked/GltfModels
-        $<TARGET_FILE_DIR:SampleApp>/assets
-    COMMENT "Copying Sample SMODEL assets to runtime output"
-)
+## NOTE: Copying SMODEL assets is handled by the CopySampleSMODELAssets target above.
 
 # Copy SPIR-V shaders to runtime output dir (expects Engine/Shaders/*.spv present)
 file(GLOB SHADER_SPV ${CMAKE_SOURCE_DIR}/Engine/shaders/*.spv)

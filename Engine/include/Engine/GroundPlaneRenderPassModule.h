@@ -58,9 +58,12 @@ namespace Engine
 
             // Matches smodel.vert push constants (x=nodeIndex, y=nodeCount)
             glm::uvec4 nodeInfo{0u, 1u, 0u, 0u};
+
+            // Matches smodel.vert skinInfo (unused for ground)
+            glm::uvec4 skinInfo{0u, 0u, 1u, 0u};
         };
 
-        static_assert(sizeof(PushConstants) == 112, "GroundPlane PushConstants must match smodel.vert");
+        static_assert(sizeof(PushConstants) == 128, "GroundPlane PushConstants must match smodel.vert");
         static_assert(offsetof(PushConstants, nodeInfo) == 96, "GroundPlane PushConstants::nodeInfo offset must match smodel.vert");
 
         struct CameraFrame
@@ -73,6 +76,11 @@ namespace Engine
             VkDeviceMemory paletteMemory = VK_NULL_HANDLE;
             void *paletteMapped = nullptr;
             uint32_t paletteCapacityMatrices = 0;
+
+            VkBuffer jointPaletteBuffer = VK_NULL_HANDLE;
+            VkDeviceMemory jointPaletteMemory = VK_NULL_HANDLE;
+            void *jointPaletteMapped = nullptr;
+            uint32_t jointPaletteCapacityMatrices = 0;
         };
 
         struct InstanceFrame
@@ -88,6 +96,9 @@ namespace Engine
             glm::vec3 normal;
             glm::vec2 uv0;
             glm::vec4 tangent;
+
+            glm::u16vec4 joints{0, 0, 0, 0};
+            glm::vec4 weights{0.0f};
         };
 
     private:

@@ -72,25 +72,30 @@ namespace Engine
 
         pci.shaderStages = {vs, fs};
 
-        // Vertex input matches SModelRenderPassModule
+        // Vertex input matches SModelRenderPassModule (VertexPNTTJW)
         std::array<VkVertexInputBindingDescription, 2> bindingDescs{};
         bindingDescs[0].binding = 0;
-        bindingDescs[0].stride = 48;
+        bindingDescs[0].stride = 72;
         bindingDescs[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
         bindingDescs[1].binding = 1;
         bindingDescs[1].stride = sizeof(glm::mat4);
         bindingDescs[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
 
-        std::array<VkVertexInputAttributeDescription, 8> attrs{};
+        std::array<VkVertexInputAttributeDescription, 10> attrs{};
         attrs[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0};
         attrs[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT, 12};
         attrs[2] = {2, 0, VK_FORMAT_R32G32_SFLOAT, 24};
         attrs[3] = {3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 32};
-        attrs[4] = {4, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 0};
-        attrs[5] = {5, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 16};
-        attrs[6] = {6, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 32};
-        attrs[7] = {7, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 48};
+
+        // Skinning inputs (unused for ground, but required by smodel.vert interface)
+        attrs[4] = {8, 0, VK_FORMAT_R16G16B16A16_UINT, 48};
+        attrs[5] = {9, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 56};
+
+        attrs[6] = {4, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 0};
+        attrs[7] = {5, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 16};
+        attrs[8] = {6, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 32};
+        attrs[9] = {7, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 48};
 
         VkPipelineVertexInputStateCreateInfo vi{};
         vi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -192,10 +197,16 @@ namespace Engine
         paletteBinding.descriptorCount = 1;
         paletteBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 
+        VkDescriptorSetLayoutBinding jointPaletteBinding{};
+        jointPaletteBinding.binding = 2;
+        jointPaletteBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        jointPaletteBinding.descriptorCount = 1;
+        jointPaletteBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
         VkDescriptorSetLayoutCreateInfo dsl{};
         dsl.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        VkDescriptorSetLayoutBinding bindings[2] = {camBinding, paletteBinding};
-        dsl.bindingCount = 2;
+        VkDescriptorSetLayoutBinding bindings[3] = {camBinding, paletteBinding, jointPaletteBinding};
+        dsl.bindingCount = 3;
         dsl.pBindings = bindings;
 
         if (vkCreateDescriptorSetLayout(ctx.GetDevice(), &dsl, nullptr, &m_cameraSetLayout) != VK_SUCCESS)
@@ -205,7 +216,7 @@ namespace Engine
         poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         poolSizes[0].descriptorCount = static_cast<uint32_t>(frameCount);
         poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        poolSizes[1].descriptorCount = static_cast<uint32_t>(frameCount);
+        poolSizes[1].descriptorCount = static_cast<uint32_t>(frameCount) * 2u; // node palette + joint palette
 
         VkDescriptorPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -299,6 +310,45 @@ namespace Engine
                 std::memcpy(cf.paletteMapped, &I, sizeof(glm::mat4));
             }
 
+            // Joint palette SSBO: allocate a tiny buffer (identity matrix) to satisfy smodel.vert.
+            cf.jointPaletteCapacityMatrices = 4;
+
+            VkBufferCreateInfo jbinfo{};
+            jbinfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+            jbinfo.size = static_cast<VkDeviceSize>(cf.jointPaletteCapacityMatrices) * sizeof(glm::mat4);
+            jbinfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+            jbinfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+            if (vkCreateBuffer(ctx.GetDevice(), &jbinfo, nullptr, &cf.jointPaletteBuffer) != VK_SUCCESS)
+                return false;
+
+            VkMemoryRequirements jmemReq{};
+            vkGetBufferMemoryRequirements(ctx.GetDevice(), cf.jointPaletteBuffer, &jmemReq);
+
+            VkMemoryAllocateInfo jmai{};
+            jmai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            jmai.allocationSize = jmemReq.size;
+            uint32_t jmemType = 0;
+            if (!findMemoryType(ctx.GetPhysicalDevice(), jmemReq.memoryTypeBits,
+                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, jmemType))
+                return false;
+            jmai.memoryTypeIndex = jmemType;
+
+            if (vkAllocateMemory(ctx.GetDevice(), &jmai, nullptr, &cf.jointPaletteMemory) != VK_SUCCESS)
+                return false;
+
+            vkBindBufferMemory(ctx.GetDevice(), cf.jointPaletteBuffer, cf.jointPaletteMemory, 0);
+
+            cf.jointPaletteMapped = nullptr;
+            if (vkMapMemory(ctx.GetDevice(), cf.jointPaletteMemory, 0, VK_WHOLE_SIZE, 0, &cf.jointPaletteMapped) != VK_SUCCESS)
+                return false;
+
+            if (cf.jointPaletteMapped)
+            {
+                const glm::mat4 I(1.0f);
+                std::memcpy(cf.jointPaletteMapped, &I, sizeof(glm::mat4));
+            }
+
             VkDescriptorBufferInfo dbi{};
             dbi.buffer = cf.buffer;
             dbi.offset = 0;
@@ -309,7 +359,12 @@ namespace Engine
             pbi.offset = 0;
             pbi.range = static_cast<VkDeviceSize>(cf.paletteCapacityMatrices) * sizeof(glm::mat4);
 
-            VkWriteDescriptorSet writes[2]{};
+            VkDescriptorBufferInfo jbi{};
+            jbi.buffer = cf.jointPaletteBuffer;
+            jbi.offset = 0;
+            jbi.range = static_cast<VkDeviceSize>(cf.jointPaletteCapacityMatrices) * sizeof(glm::mat4);
+
+            VkWriteDescriptorSet writes[3]{};
             writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             writes[0].dstSet = cf.set;
             writes[0].dstBinding = 0;
@@ -324,7 +379,14 @@ namespace Engine
             writes[1].descriptorCount = 1;
             writes[1].pBufferInfo = &pbi;
 
-            vkUpdateDescriptorSets(ctx.GetDevice(), 2, writes, 0, nullptr);
+            writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writes[2].dstSet = cf.set;
+            writes[2].dstBinding = 2;
+            writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            writes[2].descriptorCount = 1;
+            writes[2].pBufferInfo = &jbi;
+
+            vkUpdateDescriptorSets(ctx.GetDevice(), 3, writes, 0, nullptr);
         }
 
         return true;
@@ -334,6 +396,23 @@ namespace Engine
     {
         for (auto &cf : m_cameraFrames)
         {
+            if (cf.jointPaletteMapped && cf.jointPaletteMemory != VK_NULL_HANDLE)
+            {
+                vkUnmapMemory(m_device, cf.jointPaletteMemory);
+                cf.jointPaletteMapped = nullptr;
+            }
+            if (cf.jointPaletteBuffer != VK_NULL_HANDLE)
+            {
+                vkDestroyBuffer(m_device, cf.jointPaletteBuffer, nullptr);
+                cf.jointPaletteBuffer = VK_NULL_HANDLE;
+            }
+            if (cf.jointPaletteMemory != VK_NULL_HANDLE)
+            {
+                vkFreeMemory(m_device, cf.jointPaletteMemory, nullptr);
+                cf.jointPaletteMemory = VK_NULL_HANDLE;
+            }
+            cf.jointPaletteCapacityMatrices = 0;
+
             if (cf.paletteMapped && cf.paletteMemory != VK_NULL_HANDLE)
             {
                 vkUnmapMemory(m_device, cf.paletteMemory);
