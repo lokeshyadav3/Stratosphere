@@ -19,6 +19,8 @@
 #include "assets/model/SModelMaterialRecord.h"
 #include "assets/model/SModelNodeRecord.h"
 
+#include "assets/model/SModelSkinRecord.h"
+
 #include "assets/model/SModelAnimationRecords.h"
 namespace Engine::smodel
 {
@@ -26,7 +28,7 @@ namespace Engine::smodel
     static constexpr uint32_t SMODEL_MAGIC = 0x444F4D53;
 
     // Current (and only supported) runtime version.
-    static constexpr uint16_t SMODEL_VERSION_MAJOR = 3;
+    static constexpr uint16_t SMODEL_VERSION_MAJOR = 4;
     static constexpr uint16_t SMODEL_VERSION_MINOR = 0;
 
     // Small helper for loader validation.

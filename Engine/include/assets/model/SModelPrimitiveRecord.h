@@ -22,11 +22,13 @@ namespace Engine::smodel
         uint32_t indexCount; // how many indices to draw
 
         int32_t vertexOffset; // usually 0 (useful if merged meshes later)
+        int32_t skinIndex;    // -1 = no skin
+
         uint32_t reserved;
     };
 
 #pragma pack(pop)
 
-    static_assert(sizeof(SModelPrimitiveRecord) == 24, "SModelPrimitiveRecord size mismatch");
+    static_assert(sizeof(SModelPrimitiveRecord) == 28, "SModelPrimitiveRecord size mismatch");
 
 } // namespace Engine::smodel

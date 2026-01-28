@@ -6,7 +6,7 @@ namespace Engine::smodel
 #pragma pack(push, 1)
 
     // ============================================================
-    // .smodel Header (V3.x)
+    // .smodel Header (V4.x)
     // ============================================================
     // The header contains:
     // - counts of record arrays
@@ -21,7 +21,7 @@ namespace Engine::smodel
     struct SModelHeader
     {
         uint32_t magic;        // must equal 'SMOD'
-        uint16_t versionMajor; // 3
+        uint16_t versionMajor; // 4
         uint16_t versionMinor; // 0
 
         uint32_t fileSizeBytes; // entire file size (validation)
@@ -74,11 +74,21 @@ namespace Engine::smodel
 
         uint32_t animValuesOffset; // float packed values
         uint32_t animValuesCount;  // number of floats
+
+        // NEW in v4.0: skinning (optional; counts can be 0)
+        uint32_t skinsOffset;
+        uint32_t skinCount;
+
+        uint32_t skinJointNodeIndicesOffset; // uint32 node indices
+        uint32_t skinJointNodeIndicesCount;  // number of uint32s
+
+        uint32_t skinInverseBindMatricesOffset; // float array (mat4 = 16 floats)
+        uint32_t skinInverseBindMatricesCount;  // number of floats
     };
 
 #pragma pack(pop)
 
     // Size must remain stable across tool/runtime.
-    static_assert(sizeof(SModelHeader) == 168, "SModelHeader size mismatch");
+    static_assert(sizeof(SModelHeader) == 192, "SModelHeader size mismatch");
 
 } // namespace Engine::smodel

@@ -25,9 +25,9 @@ namespace Engine::smodel
         VTX_UV0 = (1u << 2),     // TEXCOORD0(vec2). Needed for textures.
         VTX_TANGENT = (1u << 3), // TANGENT  (vec4). Needed for normal maps.
 
-        // Future extension for animations:
-        // VTX_JOINTS  = (1u << 4),
-        // VTX_WEIGHTS = (1u << 5),
+        // Skinning (V4)
+        VTX_JOINTS = (1u << 4),  // JOINTS0 (u16x4)
+        VTX_WEIGHTS = (1u << 5), // WEIGHTS0 (f32x4)
     };
 
     // ============================================================

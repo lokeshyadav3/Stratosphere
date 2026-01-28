@@ -25,6 +25,9 @@ namespace Engine
         uint32_t firstIndex = 0;
         uint32_t indexCount = 0;
         int32_t vertexOffset = 0;
+
+        // Skinning (V4): -1 means unskinned.
+        int32_t skinIndex = -1;
     };
 
     struct ModelAsset
@@ -67,6 +70,23 @@ namespace Engine
         std::vector<uint32_t> nodePrimitiveIndices;
         std::vector<uint32_t> nodeChildIndices;
         uint32_t rootNodeIndex{0};
+
+        // ------------------------------------------------------------
+        // Skinning (V4)
+        // ------------------------------------------------------------
+        struct ModelSkin
+        {
+            const char *debugName{nullptr};
+
+            uint32_t jointBase = 0;  // base offset into per-instance joint palette
+            uint32_t jointCount = 0; // number of joints
+
+            std::vector<uint32_t> jointNodeIndices; // indices into nodes[]
+            std::vector<glm::mat4> inverseBind;     // one per joint
+        };
+
+        std::vector<ModelSkin> skins;
+        uint32_t totalJointCount = 0; // sum of all skin jointCount (palette stride)
 
         // ------------------------------------------------------------
         // Animations (node TRS only, no skinning yet)

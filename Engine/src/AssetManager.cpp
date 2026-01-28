@@ -568,6 +568,7 @@ namespace Engine
             prim.firstIndex = p.firstIndex;
             prim.indexCount = p.indexCount;
             prim.vertexOffset = p.vertexOffset;
+            prim.skinIndex = p.skinIndex;
 
             model->primitives[i] = prim;
 
@@ -615,6 +616,60 @@ namespace Engine
                     matDeps.push_back(prim.material);
                 }
             }
+        }
+
+        // --------------------------
+        // V4: Populate skin tables (optional)
+        // --------------------------
+        if (view.skinCount() > 0)
+        {
+            model->skins.resize(view.skinCount());
+            model->totalJointCount = 0;
+
+            for (uint32_t si = 0; si < view.skinCount(); ++si)
+            {
+                const auto &sr = view.skins[si];
+                ModelAsset::ModelSkin skin{};
+                skin.debugName = view.getStringOrEmpty(sr.nameStrOffset);
+                skin.jointBase = model->totalJointCount;
+                skin.jointCount = sr.jointCount;
+
+                // Validate and copy joint node indices slice
+                if (sr.jointCount > 0)
+                {
+                    if (sr.firstJointNodeIndex + sr.jointCount > view.skinJointNodeIndicesCount())
+                    {
+                        std::cout << "[AssetManager] loadModel: Skin jointNodeIndices out of range (skinIndex=" << si << ")\n";
+                        return ModelHandle{};
+                    }
+
+                    const uint32_t *srcJ = view.skinJointNodeIndices + sr.firstJointNodeIndex;
+                    skin.jointNodeIndices.assign(srcJ, srcJ + sr.jointCount);
+
+                    // Validate inverse bind matrices
+                    const uint64_t neededFloats = uint64_t(sr.jointCount) * 16ull;
+                    if (uint64_t(sr.firstInverseBindMatrix) + neededFloats > view.skinInverseBindMatricesCount())
+                    {
+                        std::cout << "[AssetManager] loadModel: Skin inverseBindMatrices out of range (skinIndex=" << si << ")\n";
+                        return ModelHandle{};
+                    }
+
+                    skin.inverseBind.resize(sr.jointCount);
+                    const float *srcM = view.skinInverseBindMatrices + sr.firstInverseBindMatrix;
+                    for (uint32_t j = 0; j < sr.jointCount; ++j)
+                    {
+                        std::memcpy(glm::value_ptr(skin.inverseBind[j]), srcM + size_t(j) * 16u, sizeof(float) * 16u);
+                    }
+                }
+
+                model->skins[si] = std::move(skin);
+                model->totalJointCount += sr.jointCount;
+            }
+        }
+        else
+        {
+            model->skins.clear();
+            model->totalJointCount = 0;
         }
 
         // Precompute center and fit scale to 20 units if bounds are valid

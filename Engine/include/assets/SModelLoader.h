@@ -38,6 +38,11 @@ namespace Engine::smodel
         const float *animTimes = nullptr;
         const float *animValues = nullptr;
 
+        // Skinning (V4)
+        const SModelSkinRecord *skins = nullptr;
+        const uint32_t *skinJointNodeIndices = nullptr;
+        const float *skinInverseBindMatrices = nullptr;
+
         // String table start pointer (C-string table)
         const char *stringTable = nullptr;
 
@@ -82,6 +87,25 @@ namespace Engine::smodel
             if (!header || header->versionMajor < 3)
                 return 0;
             return header->animValuesCount;
+        }
+
+        uint32_t skinCount() const
+        {
+            if (!header || header->versionMajor < 4)
+                return 0;
+            return header->skinCount;
+        }
+        uint32_t skinJointNodeIndicesCount() const
+        {
+            if (!header || header->versionMajor < 4)
+                return 0;
+            return header->skinJointNodeIndicesCount;
+        }
+        uint32_t skinInverseBindMatricesCount() const
+        {
+            if (!header || header->versionMajor < 4)
+                return 0;
+            return header->skinInverseBindMatricesCount;
         }
 
         // Returns pointer to a null-terminated string in the string table.
