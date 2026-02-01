@@ -210,17 +210,6 @@ void MySampleApp::PickAndSelectEntityAtCursor()
     excluded.set(disabledId);
     excluded.set(deadId);
 
-    // Clear existing selection first.
-    for (const auto &ptr : ecs.stores.stores())
-    {
-        if (!ptr)
-            continue;
-        auto &store = *ptr;
-        auto &masks = store.rowMasks();
-        for (auto &mask : masks)
-            mask.clear(selectedId);
-    }
-
     // Project entities to screen; pick closest to cursor within a small radius.
     const glm::mat4 view = m_camera.GetViewMatrix();
     const glm::mat4 proj = m_camera.GetProjectionMatrix();
@@ -286,14 +275,65 @@ void MySampleApp::PickAndSelectEntityAtCursor()
         }
     }
 
-    if (!bestStore)
-        return;
+    if (bestStore)
+    {
+        // Clicked on an entity - select it
+        // Clear existing selection first.
+        for (const auto &ptr : ecs.stores.stores())
+        {
+            if (!ptr)
+                continue;
+            auto &store = *ptr;
+            auto &masks = store.rowMasks();
+            for (auto &mask : masks)
+                mask.clear(selectedId);
+        }
 
-    // Apply selection and start animation.
-    bestStore->rowMasks()[bestRow].set(selectedId);
-    auto &anim = bestStore->renderAnimations()[bestRow];
-    anim.playing = true;
-    anim.timeSec = 0.0f;
+        // Apply selection
+        bestStore->rowMasks()[bestRow].set(selectedId);
+    }
+    else
+    {
+        // Clicked on ground - move selected units to this position
+        // Ray-cast from camera through cursor to ground plane (Y=0)
+
+        // Convert mouse coords to NDC
+        const float ndcX = (mouseX / width) * 2.0f - 1.0f;
+        const float ndcY = (mouseY / height) * 2.0f - 1.0f;
+
+        // Unproject near and far points
+        const glm::mat4 invVP = glm::inverse(vp);
+        const glm::vec4 nearClip(ndcX, ndcY, 0.0f, 1.0f);  // Near plane (z=0 in NDC)
+        const glm::vec4 farClip(ndcX, ndcY, 1.0f, 1.0f);   // Far plane (z=1 in NDC)
+
+        glm::vec4 nearWorld = invVP * nearClip;
+        glm::vec4 farWorld = invVP * farClip;
+
+        if (std::abs(nearWorld.w) > 1e-6f)
+            nearWorld /= nearWorld.w;
+        if (std::abs(farWorld.w) > 1e-6f)
+            farWorld /= farWorld.w;
+
+        const glm::vec3 rayOrigin(nearWorld);
+        const glm::vec3 rayDir = glm::normalize(glm::vec3(farWorld) - glm::vec3(nearWorld));
+
+        // Intersect with ground plane (Y = 0)
+        // Ray: P = O + t * D
+        // Plane: Y = 0  =>  O.y + t * D.y = 0  =>  t = -O.y / D.y
+        if (std::abs(rayDir.y) > 1e-6f)
+        {
+            const float t = -rayOrigin.y / rayDir.y;
+            if (t > 0.0f)
+            {
+                const glm::vec3 hitPoint = rayOrigin + t * rayDir;
+                
+                // Send move command to selected units
+                m_systems.SetGlobalMoveTarget(hitPoint.x, 0.0f, hitPoint.z);
+                
+                std::cout << "[Move] Ground click at (" << hitPoint.x << ", " << hitPoint.z << ")\n";
+            }
+        }
+    }
 }
 
 void MySampleApp::ApplyRTSCamera(float aspect)

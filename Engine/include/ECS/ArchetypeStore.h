@@ -58,6 +58,8 @@ namespace Engine::ECS
                 m_renderModels.emplace_back(RenderModel{});
             if (hasRenderAnimation())
                 m_renderAnimations.emplace_back(RenderAnimation{});
+            if (hasFacing())
+                m_facings.emplace_back(Facing{});
 
             return row;
         }
@@ -98,6 +100,8 @@ namespace Engine::ECS
                 swapErase(m_renderModels);
             if (hasRenderAnimation())
                 swapErase(m_renderAnimations);
+            if (hasFacing())
+                swapErase(m_facings);
         }
 
         // Apply typed defaults for a newly created row.
@@ -150,6 +154,10 @@ namespace Engine::ECS
                 {
                     m_renderAnimations[row] = std::get<RenderAnimation>(kv.second);
                 }
+                else if (std::holds_alternative<Facing>(kv.second) && hasFacing())
+                {
+                    m_facings[row] = std::get<Facing>(kv.second);
+                }
             }
         }
 
@@ -192,6 +200,9 @@ namespace Engine::ECS
         std::vector<RenderAnimation> &renderAnimations() { return m_renderAnimations; }
         const std::vector<RenderAnimation> &renderAnimations() const { return m_renderAnimations; }
 
+        std::vector<Facing> &facings() { return m_facings; }
+        const std::vector<Facing> &facings() const { return m_facings; }
+
         // Helpers
         bool hasPosition() const { return m_hasPosition; }
         bool hasVelocity() const { return m_hasVelocity; }
@@ -203,6 +214,7 @@ namespace Engine::ECS
         bool hasAvoidanceParams() const { return m_hasAvoidanceParams; }
         bool hasRenderModel() const { return m_hasRenderModel; }
         bool hasRenderAnimation() const { return m_hasRenderAnimation; }
+        bool hasFacing() const { return m_hasFacing; }
 
         // Resolve which known components are present in signature; enables arrays accordingly.
         void resolveKnownComponents(ComponentRegistry &registry)
@@ -217,6 +229,7 @@ namespace Engine::ECS
             const uint32_t apId = registry.ensureId("AvoidanceParams");
             const uint32_t rmId = registry.ensureId("RenderModel");
             const uint32_t raId = registry.ensureId("RenderAnimation");
+            const uint32_t faceId = registry.ensureId("Facing");
             m_hasPosition = m_signature.has(posId);
             m_hasVelocity = m_signature.has(velId);
             m_hasHealth = m_signature.has(heaId);
@@ -227,6 +240,7 @@ namespace Engine::ECS
             m_hasAvoidanceParams = m_signature.has(apId);
             m_hasRenderModel = m_signature.has(rmId);
             m_hasRenderAnimation = m_signature.has(raId);
+            m_hasFacing = m_signature.has(faceId);
         }
 
     private:
@@ -245,6 +259,7 @@ namespace Engine::ECS
         std::vector<AvoidanceParams> m_avoidanceParams;
         std::vector<RenderModel> m_renderModels;
         std::vector<RenderAnimation> m_renderAnimations;
+        std::vector<Facing> m_facings;
 
         // Flags indicating which arrays are active.
         bool m_hasPosition = false;
@@ -257,6 +272,7 @@ namespace Engine::ECS
         bool m_hasAvoidanceParams = false;
         bool m_hasRenderModel = false;
         bool m_hasRenderAnimation = false;
+        bool m_hasFacing = false;
     };
 
     class ArchetypeStoreManager

@@ -120,7 +120,16 @@ public:
                     continue;
 
                 // World matrix
-                batch.instanceWorlds.emplace_back(glm::translate(glm::mat4(1.0f), glm::vec3(pos.x, pos.y, pos.z)));
+                auto *facings = store.hasFacing() ? &store.facings() : nullptr;
+                glm::mat4 world = glm::translate(glm::mat4(1.0f), glm::vec3(pos.x, pos.y, pos.z));
+                
+                if (facings)
+                {
+                    const float yaw = (*facings)[row].yaw;
+                    world = glm::rotate(world, yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+                }
+
+                batch.instanceWorlds.emplace_back(world);
 
                 const uint32_t safeClip = (!asset->animClips.empty())
                                               ? std::min(anim.clipIndex, static_cast<uint32_t>(asset->animClips.size() - 1))

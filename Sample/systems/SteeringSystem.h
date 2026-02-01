@@ -25,7 +25,7 @@ public:
         { return std::sqrt(x * x + z * z); };
 
         // Gameplay uses meters; stop once we're within a small radius.
-        const float arrivalRadius = 0.25f;
+        const float arrivalRadius = 1.0f;  // Increased from 0.25 for easier stopping
         // Snappy stop: no long slowdown phase.
         // We'll keep full speed, but clamp the final step so we hit the arrival radius cleanly.
 
@@ -44,9 +44,11 @@ public:
             auto &positions = const_cast<std::vector<Engine::ECS::Position> &>(store.positions());
             auto &velocities = const_cast<std::vector<Engine::ECS::Velocity> &>(store.velocities());
 
-            // You’ll add these to ArchetypeStore once you wire MoveTarget/MoveSpeed there:
+            // You'll add these to ArchetypeStore once you wire MoveTarget/MoveSpeed there:
             auto &targets = const_cast<std::vector<Engine::ECS::MoveTarget> &>(store.moveTargets());
             auto &speeds = const_cast<std::vector<Engine::ECS::MoveSpeed> &>(store.moveSpeeds());
+
+            auto *facings = store.hasFacing() ? &const_cast<std::vector<Engine::ECS::Facing> &>(store.facings()) : nullptr;
 
             const auto &masks = store.rowMasks();
             const uint32_t n = store.size();
@@ -72,6 +74,7 @@ public:
                 {
                     vel.x = vel.y = vel.z = 0.0f;
                     tgt.active = 0;
+                    std::cout << "[Steering] Unit " << i << " ARRIVED at (" << pos.x << ", " << pos.z << ") dist=" << dist << "\n";
                     continue;
                 }
 
@@ -100,6 +103,12 @@ public:
                 vel.z = dz * desiredSpeed;
                 // Height axis is y; gameplay movement stays on the ground plane for now.
                 vel.y = 0.0f;
+
+                // Update facing if moving
+                if (facings && (vel.x != 0.0f || vel.z != 0.0f))
+                {
+                    (*facings)[i].yaw = std::atan2(vel.x, vel.z);
+                }
             }
         }
     }

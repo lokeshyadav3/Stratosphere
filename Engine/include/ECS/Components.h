@@ -107,8 +107,15 @@ namespace Engine::ECS
         bool playing = false;
     };
 
+    // Entity facing direction (Y-axis rotation in radians)
+    // 0 = facing +Z, PI/2 = facing +X, PI = facing -Z, -PI/2 = facing -X
+    struct Facing
+    {
+        float yaw = 0.0f;  // Rotation around Y axis in radians
+    };
+
     // Typed defaults per component ID (used by Prefabs/Stores).
-    using DefaultValue = std::variant<Position, Velocity, Health, MoveTarget, MoveSpeed, Radius, Separation, AvoidanceParams, RenderModel, RenderAnimation>;
+    using DefaultValue = std::variant<Position, Velocity, Health, MoveTarget, MoveSpeed, Radius, Separation, AvoidanceParams, RenderModel, RenderAnimation, Facing>;
     // -----------------------
     // Component Registry
     // -----------------------

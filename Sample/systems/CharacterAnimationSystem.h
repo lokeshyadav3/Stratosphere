@@ -7,9 +7,20 @@
 #include <cmath>
 #include <cstdint>
 
+// Animation clip indices for Knight model
+namespace AnimClips
+{
+    constexpr uint32_t RUN = 28;              // Armature|Run_No_Equipments
+    constexpr uint32_t RUN_NO_EQUIP = 28;     // Armature|Run_No_Equipments
+    constexpr uint32_t IDLE = 65;             // Armature|Stand_Idle_0
+    constexpr uint32_t IDLE_1 = 66;           // Armature|Stand_Idle_1
+    constexpr uint32_t WALK = 112;            // Armature|Walk
+}
+
 // CharacterAnimationSystem
 // - Advances per-entity RenderAnimation time
-// - Only applies to entities tagged as Selected (row mask)
+// - Automatically switches between Idle and Run animations based on movement state
+// - Checks MoveTarget.active and Velocity to determine if entity is moving
 class CharacterAnimationSystem : public Engine::ECS::SystemBase
 {
 public:
@@ -34,6 +45,10 @@ public:
         if (!m_assets)
             return;
 
+        // Velocity threshold to consider entity as "moving"
+        constexpr float kVelocityThreshold = 0.1f;
+        constexpr float kVelocityThreshold2 = kVelocityThreshold * kVelocityThreshold;
+
         for (const auto &ptr : mgr.stores())
         {
             if (!ptr)
@@ -52,11 +67,15 @@ public:
             const auto &masks = store.rowMasks();
             const uint32_t n = store.size();
 
+            // Check if this store has velocity and move target for movement detection
+            const bool hasVelocity = store.hasVelocity();
+            const bool hasMoveTarget = store.hasMoveTarget();
+            const auto *velocities = hasVelocity ? &store.velocities() : nullptr;
+            const auto *targets = hasMoveTarget ? &store.moveTargets() : nullptr;
+
             for (uint32_t row = 0; row < n; ++row)
             {
                 if (!masks[row].matches(required(), excluded()))
-                    continue;
-                if (!masks[row].has(m_selectedId))
                     continue;
 
                 const Engine::ModelHandle handle = renderModels[row].handle;
@@ -73,10 +92,38 @@ public:
                     continue;
                 }
 
-                const uint32_t safeClip = std::min(anim.clipIndex, static_cast<uint32_t>(asset->animClips.size() - 1));
-                anim.clipIndex = safeClip;
+                // --- Animation State Machine ---
+                // Determine if entity is moving based on Velocity ONLY
+                // (MoveTarget.active check removed - velocity is the ground truth)
+                bool isMoving = false;
 
-                const float duration = asset->animClips[safeClip].durationSec;
+                if (velocities)
+                {
+                    const auto &vel = (*velocities)[row];
+                    const float speed2 = vel.x * vel.x + vel.y * vel.y + vel.z * vel.z;
+                    isMoving = (speed2 > kVelocityThreshold2);
+                }
+
+                // Select appropriate animation clip
+                uint32_t desiredClip = isMoving ? AnimClips::RUN : AnimClips::IDLE;
+
+                // Clamp to valid range
+                const uint32_t maxClip = static_cast<uint32_t>(asset->animClips.size() - 1);
+                desiredClip = std::min(desiredClip, maxClip);
+
+                // If clip changed, reset animation time
+                if (anim.clipIndex != desiredClip)
+                {
+                    anim.clipIndex = desiredClip;
+                    anim.timeSec = 0.0f;
+                }
+
+                // Ensure animation is playing and looping
+                anim.playing = true;
+                anim.loop = true;
+
+                // --- Advance Animation Time ---
+                const float duration = asset->animClips[anim.clipIndex].durationSec;
                 if (!anim.playing || duration <= 1e-6f)
                     continue;
 

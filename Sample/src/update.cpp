@@ -35,8 +35,8 @@ namespace Sample
         // Suggested order per LocalAvoidanceSystem.h
         m_command.update(ecs.stores, dtSeconds);
         m_steering.update(ecs.stores, dtSeconds);
-        m_spatial.update(ecs.stores, dtSeconds);
-        m_avoidance.update(ecs.stores, dtSeconds);
+        // m_spatial.update(ecs.stores, dtSeconds);    // Disabled: SpatialIndexSystem
+        // m_avoidance.update(ecs.stores, dtSeconds);  // Disabled: LocalAvoidanceSystem
         m_movement.update(ecs.stores, dtSeconds);
         m_characterAnim.update(ecs.stores, dtSeconds);
         m_renderModel.update(ecs.stores, dtSeconds);

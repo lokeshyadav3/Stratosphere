@@ -147,11 +147,16 @@ namespace Engine::ECS
                         rm.handle = h;
                         p.defaults[rmId] = rm;
 
-                        // Also add per-entity animation state (defaults: clip 0, time 0, looping, playing)
+                        // Also add per-entity animation state (defaults: Idle animation, playing, looping)
                         const uint32_t raId = registry.ensureId("RenderAnimation");
                         p.signature.set(raId);
 
                         RenderAnimation ra{};
+                        ra.clipIndex = 65;    // Stand_Idle_0 animation
+                        ra.playing = true;    // Start playing immediately
+                        ra.loop = true;       // Loop the animation
+                        ra.speed = 1.0f;
+                        ra.timeSec = 0.0f;
                         p.defaults[raId] = ra;
                     }
                     else
@@ -275,6 +280,19 @@ namespace Engine::ECS
                 ap.blend = std::stof(m[3].str());
                 uint32_t cid = registry.ensureId("AvoidanceParams");
                 p.defaults.emplace(cid, ap);
+            }
+        }
+
+        // Parse defaults: Facing
+        {
+            std::regex re_face(R"("Facing"\s*:\s*\{\s*"yaw"\s*:\s*([-+]?\d*\.?\d+)\s*\})");
+            std::smatch m;
+            if (std::regex_search(jsonText, m, re_face))
+            {
+                Facing f{};
+                f.yaw = std::stof(m[1].str());
+                uint32_t cid = registry.ensureId("Facing");
+                p.defaults.emplace(cid, f);
             }
         }
 
