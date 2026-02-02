@@ -363,7 +363,7 @@ void MySampleApp::ApplyRTSCamera(float aspect)
     m_camera.SetRotation(m_rtsCam.yawDeg, m_rtsCam.pitchDeg);
 }
 
-void MySampleApp::OnRender()
+void MySampleApp::OnRender()  //Result Handling and Menu Rendering
 {
     // Rendering handled by Renderer/Engine.
 }
