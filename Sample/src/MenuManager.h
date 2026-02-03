@@ -18,6 +18,12 @@
 class MenuManager
 {
 public:
+    enum class Mode
+    {
+        MainMenu,
+        PauseMenu
+    };
+
     enum class Result
     {
         None,
@@ -26,7 +32,7 @@ public:
         Exit
     };
 
-    using TextureLoaderFn = std::function<ImTextureID(const std::string& path)>;
+    using TextureLoaderFn = std::function<ImTextureID(const std::string &path)>;
 
     MenuManager();
     ~MenuManager() = default;
@@ -49,18 +55,29 @@ public:
     void SetHasSaveFile(bool v) { m_hasSaveFile = v; }
 
     // Controls to show/hide menu externally
-    void Show() { m_show = true; m_timeSinceShown = 0.0f; }
-    void Hide() { m_show = false; m_timeSinceShown = 0.0f; }
+    void Show()
+    {
+        m_show = true;
+        m_timeSinceShown = 0.0f;
+    }
+    void Hide()
+    {
+        m_show = false;
+        m_timeSinceShown = 0.0f;
+    }
     bool IsVisible() const { return m_show; }
 
-        void StartGameFadeIn() 
-    { 
+    void SetMode(Mode m) { m_mode = m; }
+    Mode GetMode() const { return m_mode; }
+
+    void StartGameFadeIn()
+    {
         m_show = false;
         m_fadingToGame = true;
         m_timeSinceShown = 0.0f;
         m_gameAlpha = 0.0f;
     }
-    
+
     float GetGameAlpha() const { return m_fadingToGame ? m_gameAlpha : 1.0f; }
     bool IsFadingToGame() const { return m_fadingToGame; }
 
@@ -70,17 +87,19 @@ private:
 
 private:
     TextureLoaderFn m_loader = nullptr;
-    std::array<ImTextureID, 3> m_tex = { nullptr, nullptr, nullptr }; // new, continue, exit
+    std::array<ImTextureID, 3> m_tex = {nullptr, nullptr, nullptr}; // new, continue, exit
     ImTextureID m_background = nullptr;
 
     int m_selected = 0;
     bool m_show = true;
     bool m_hasSaveFile = false;
     float m_timeSinceShown = 0.0f;
-    float m_fadeDuration = 0.4f; // seconds
+    float m_fadeDuration = 1.0f; // seconds
     float m_alpha = 1.0f;
-        bool m_fadingToGame = false;
-    float m_gameAlpha = 0.0f;  // Controls fade-in of the game world
+    bool m_fadingToGame = false;
+    float m_gameAlpha = 0.5f; // Controls fade-in of the game world
+
+    Mode m_mode = Mode::MainMenu;
 
     Result m_result = Result::None;
 };

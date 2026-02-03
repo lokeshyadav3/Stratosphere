@@ -72,6 +72,9 @@ private:
     // Menu
     MenuManager m_menu;
 
+    // True once a new game is started or a save is loaded.
+    bool m_inGame = false;
+
     // ImGui Vulkan backend uses ImTextureID as a VkDescriptorSet.
     // When the window is resized, Application recreates ImGui (descriptor pool),
     // which invalidates previously cached ImTextureID values. This flag triggers

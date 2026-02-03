@@ -44,26 +44,26 @@ namespace Engine
         // Initialize ImGui layer
         m_Impl->imguiLayer = std::make_unique<ImGuiLayer>();
         uint32_t imageCount = static_cast<uint32_t>(m_Impl->vkContext->GetSwapChain()->GetImageViews().size());
-        m_Impl->imguiLayer->init(*m_Impl->vkContext, *m_Impl->window, 
-                                  m_Impl->renderer->getMainRenderPass(), imageCount);
+        m_Impl->imguiLayer->init(*m_Impl->vkContext, *m_Impl->window,
+                                 m_Impl->renderer->getMainRenderPass(), imageCount);
 
         // Initialize performance monitor
         m_Impl->perfMonitor = std::make_unique<PerformanceMonitor>();
         m_Impl->perfMonitor->init(m_Impl->vkContext.get(), m_Impl->renderer.get(), m_Impl->window.get());
 
         // Set up ImGui render callback to render performance overlay
-        m_Impl->imguiLayer->setRenderCallback([this]() {
+        m_Impl->imguiLayer->setRenderCallback([this]()
+                                              {
             if (m_Impl->perfMonitor) {
                 m_Impl->perfMonitor->renderOverlay();
-            }
-        });
+            } });
 
         // Set up renderer's ImGui render callback
-        m_Impl->renderer->setImGuiRenderCallback([this](VkCommandBuffer cmd) {
+        m_Impl->renderer->setImGuiRenderCallback([this](VkCommandBuffer cmd)
+                                                 {
             if (m_Impl->imguiLayer && m_Impl->imguiLayer->isInitialized()) {
                 m_Impl->imguiLayer->render(cmd);
-            }
-        });
+            } });
 
         m_Impl->ecs = std::make_unique<ECS::ECSContext>();
     }
@@ -126,7 +126,11 @@ namespace Engine
     {
         if (m_Impl->eventCallback)
             m_Impl->eventCallback(name);
-        if (name == "WindowClose" || name == "EscapePressed")
+
+        // Only the OS/window close event should force shutdown.
+        // Escape is forwarded to the application so samples can use it
+        // for in-game menus and pause screens.
+        if (name == "WindowClose")
         {
             Close();
         }
@@ -159,21 +163,21 @@ namespace Engine
                 {
                     uint32_t imageCount = static_cast<uint32_t>(m_Impl->vkContext->GetSwapChain()->GetImageViews().size());
                     m_Impl->imguiLayer->init(*m_Impl->vkContext, *m_Impl->window,
-                                              m_Impl->renderer->getMainRenderPass(), imageCount);
-                    
+                                             m_Impl->renderer->getMainRenderPass(), imageCount);
+
                     // Restore render callback
-                    m_Impl->imguiLayer->setRenderCallback([this]() {
+                    m_Impl->imguiLayer->setRenderCallback([this]()
+                                                          {
                         if (m_Impl->perfMonitor) {
                             m_Impl->perfMonitor->renderOverlay();
-                        }
-                    });
+                        } });
 
                     // Restore renderer's ImGui callback
-                    m_Impl->renderer->setImGuiRenderCallback([this](VkCommandBuffer cmd) {
+                    m_Impl->renderer->setImGuiRenderCallback([this](VkCommandBuffer cmd)
+                                                             {
                         if (m_Impl->imguiLayer && m_Impl->imguiLayer->isInitialized()) {
                             m_Impl->imguiLayer->render(cmd);
-                        }
-                    });
+                        } });
                 }
 
                 if (m_Impl->imguiLayer)
@@ -189,7 +193,7 @@ namespace Engine
     Renderer &Application::GetRenderer() { return *m_Impl->renderer; }
     ECS::ECSContext &Application::GetECS() { return *m_Impl->ecs; }
 
-    ImGuiLayer* Application::GetImGuiLayer()
+    ImGuiLayer *Application::GetImGuiLayer()
     {
         return m_Impl->imguiLayer.get();
     }
@@ -198,7 +202,7 @@ namespace Engine
     {
         // Signal loop exit first
         m_Impl->running = false;
-        
+
         // Cleanup ImGui
         if (m_Impl->imguiLayer)
         {

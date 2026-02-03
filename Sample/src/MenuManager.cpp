@@ -142,21 +142,30 @@ void MenuManager::OnImGuiFrame()
     ImGui::PopStyleVar(2);
 
     // Draw menu background (if texture available)--replaced with black for simplicity
-    // Draw pure black background (ignore texture)
-    ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize, ImGui::GetColorU32(ImVec4(0, 0, 0, 1.0f)));
+    // Main menu: dark background. Pause menu: greyish-white background.
+    if (m_mode == Mode::MainMenu)
+    {
+        ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize, ImGui::GetColorU32(ImVec4(0.5, 0.5, 0.5, 1.0f)));
+    }
+    else
+    {
+        // Light grey with fade alpha.
+        ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize, ImGui::GetColorU32(ImVec4(0.50f, 0.50f, 0.50f, m_alpha)));
+    }
 
     // Capture keyboard & mouse for menu navigation (so underlying app doesn't react)
     ImGui::SetNextWindowBgAlpha(0.0f);
     ImGui::BeginChild("MenuButtonsRegion", ImVec2(0, 0), false, ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoDecoration);
 
-    // Place the buttons centered vertically
+    // Place the buttons centered on screen
     const float buttonWidth = 300.0f;
     const float buttonHeight = 72.0f;
-    ImVec2 center = ImGui::GetWindowSize();
-    center.x *= 0.5f;
-    center.y *= 0.45f;
 
-    ImGui::SetCursorPosX(center.x - buttonWidth * 0.5f);
+    constexpr float kSpacingY = 12.0f;
+    const float totalHeight = buttonHeight * 3.0f + kSpacingY * 2.0f;
+    const ImVec2 winSize = ImGui::GetWindowSize();
+    const float startX = (winSize.x - buttonWidth) * 0.5f;
+    const float startY = (winSize.y - totalHeight) * 0.5f;
 
     // Keyboard handling
     handleInput();
@@ -165,9 +174,7 @@ void MenuManager::OnImGuiFrame()
     const char *labels[3] = {"New Game", "Continue", "Exit"};
     for (int i = 0; i < 3; ++i)
     {
-        if (i != 0)
-            ImGui::Dummy(ImVec2(0, 12.0f)); // spacing
-        ImGui::SetCursorPosX(center.x - buttonWidth * 0.5f);
+        ImGui::SetCursorPos(ImVec2(startX, startY + static_cast<float>(i) * (buttonHeight + kSpacingY)));
 
         ImGui::PushID(i);
         ImVec4 tint = ImVec4(1, 1, 1, m_alpha);
@@ -176,14 +183,13 @@ void MenuManager::OnImGuiFrame()
         bool clicked = false;
         // If this is the Continue button and no save exists, treat as disabled
         bool enabled = true;
-        if (i == 1 && !m_hasSaveFile)
+        if (i == 1 && m_mode == Mode::MainMenu && !m_hasSaveFile)
             enabled = false;
         if (m_tex[i])
         {
             // Image button (if texture available)
             ImGui::PushStyleColor(ImGuiCol_Button, bgTint);
             ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 8.0f);
-            ImGui::SetCursorPosX(center.x - buttonWidth * 0.5f);
             if (ImGui::ImageButton(m_tex[i], ImVec2(buttonWidth, buttonHeight), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0, 0, 0, 0), tint))
                 clicked = true;
             ImGui::PopStyleVar();
@@ -194,7 +200,6 @@ void MenuManager::OnImGuiFrame()
             // Text button fallback
             ImGui::PushStyleColor(ImGuiCol_Button, bgTint);
             ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 8.0f);
-            ImGui::SetCursorPosX(center.x - buttonWidth * 0.5f);
             if (ImGui::Button(labels[i], ImVec2(buttonWidth, buttonHeight)))
                 clicked = true;
             ImGui::PopStyleVar();

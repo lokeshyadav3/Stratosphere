@@ -66,6 +66,7 @@ MySampleApp::MySampleApp() : Engine::Application()
             return layer->addTexture(sampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL); });
     // Optionally let the MenuManager know whether a save exists (so it can enable "Continue")
     m_menu.SetHasSaveFile(HasSaveFile());
+    m_menu.SetMode(MenuManager::Mode::MainMenu);
 
     auto loader = m_menu.GetTextureLoader();
     if (loader)
@@ -174,6 +175,11 @@ void MySampleApp::Close()
 
 void MySampleApp::OnUpdate(Engine::TimeStep ts)
 {
+    // When the in-game pause menu is visible, freeze the simulation so "Continue"
+    // resumes exactly from the state when Escape was pressed.
+    if (m_inGame && m_menu.IsVisible())
+        return;
+
     auto &win = GetWindow();
     const float aspect = static_cast<float>(win.GetWidth()) / static_cast<float>(win.GetHeight());
 
@@ -462,6 +468,8 @@ void MySampleApp::OnRender()
             std::remove(m_saveFilePath.c_str());
             m_menu.SetHasSaveFile(false);
 
+            m_inGame = true;
+
             // Start fade-in effect instead of just hiding
             m_menu.StartGameFadeIn();
 
@@ -469,9 +477,18 @@ void MySampleApp::OnRender()
         }
         else if (res == MenuManager::Result::ContinueGame)
         {
-            // Load saved state (if present) and hide menu
-            LoadGameState();
-            m_menu.Hide();
+            if (m_menu.GetMode() == MenuManager::Mode::PauseMenu)
+            {
+                // Resume the current game state
+                m_menu.Hide();
+            }
+            else
+            {
+                // Main menu: load from disk and enter game
+                LoadGameState();
+                m_inGame = true;
+                m_menu.Hide();
+            }
         }
         else if (res == MenuManager::Result::Exit)
         {
@@ -534,6 +551,13 @@ void MySampleApp::OnEvent(const std::string &name)
     std::string evt;
     iss >> evt;
 
+    // If the pause menu is open, ignore gameplay mouse input.
+    if (m_inGame && m_menu.IsVisible())
+    {
+        if (evt == "MouseButtonLeftDown" || evt == "MouseButtonLeftUp" || evt == "MouseButtonRightDown" || evt == "MouseButtonRightUp" || evt == "MouseScroll")
+            return;
+    }
+
     if (evt == "MouseButtonLeftDown")
     {
         m_isPanning = true;
@@ -567,9 +591,24 @@ void MySampleApp::OnEvent(const std::string &name)
         return;
     }
 
-    if (name == "EscapePressed")
+    if (evt == "EscapePressed")
     {
-        Close();
+        if (!m_inGame)
+        {
+            // On the main menu, ignore Escape (engine no longer force-quits).
+            return;
+        }
+
+        // Toggle pause menu.
+        if (m_menu.IsVisible())
+        {
+            m_menu.Hide();
+        }
+        else
+        {
+            m_menu.SetMode(MenuManager::Mode::PauseMenu);
+            m_menu.Show();
+        }
         return;
     }
 
