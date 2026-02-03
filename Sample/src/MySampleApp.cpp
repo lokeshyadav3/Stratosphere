@@ -2,7 +2,7 @@
 
 #include "Engine/VulkanContext.h"
 #include "Engine/Window.h"
-#include "Engine/ImGuiLayer.h" 
+#include "Engine/ImGuiLayer.h"
 #include <vulkan/vulkan.h>
 
 #include "ECS/Prefab.h"
@@ -39,8 +39,8 @@ MySampleApp::MySampleApp() : Engine::Application()
         GetVulkanContext().GetGraphicsQueue(),
         GetVulkanContext().GetGraphicsQueueFamilyIndex());
 
-
-        m_menu.SetTextureLoader([this](const std::string& relpath) -> ImTextureID {
+    m_menu.SetTextureLoader([this](const std::string &relpath) -> ImTextureID
+                            {
             if (!m_assets)
                 return nullptr;
 
@@ -63,19 +63,18 @@ MySampleApp::MySampleApp() : Engine::Application()
             if (!layer)
                 return nullptr;
 
-            return layer->addTexture(sampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        });
+            return layer->addTexture(sampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL); });
     // Optionally let the MenuManager know whether a save exists (so it can enable "Continue")
     m_menu.SetHasSaveFile(HasSaveFile());
 
     auto loader = m_menu.GetTextureLoader();
     if (loader)
     {
-         // Use same relative path convention as MenuManager (example uses "assets/raw/...")
-        ImTextureID bg   = loader("assets/raw/menu.png");
+        // Use same relative path convention as MenuManager (example uses "assets/raw/...")
+        ImTextureID bg = loader("assets/raw/menu.png");
         ImTextureID tnew = loader("assets/raw/newgame.png");
-        ImTextureID tcont= loader("assets/raw/continuegame.png");
-        ImTextureID texit= loader("assets/raw/exit.png");
+        ImTextureID tcont = loader("assets/raw/continuegame.png");
+        ImTextureID texit = loader("assets/raw/exit.png");
     }
     // RTS camera initialization (classic defaults).
     m_rtsCam.focus = {0.0f, 0.0f, 0.0f};
@@ -149,7 +148,7 @@ MySampleApp::MySampleApp() : Engine::Application()
     SetEventCallback([this](const std::string &e)
                      { this->OnEvent(e); });
 
-        // Detect whether a save exists so MenuManager can show Continue
+    // Detect whether a save exists so MenuManager can show Continue
     m_menu.SetHasSaveFile(HasSaveFile());
 
     // Hook up event callback (already present in file previously)
@@ -265,17 +264,6 @@ void MySampleApp::PickAndSelectEntityAtCursor()
     excluded.set(disabledId);
     excluded.set(deadId);
 
-    // Clear existing selection first.
-    for (const auto &ptr : ecs.stores.stores())
-    {
-        if (!ptr)
-            continue;
-        auto &store = *ptr;
-        auto &masks = store.rowMasks();
-        for (auto &mask : masks)
-            mask.clear(selectedId);
-    }
-
     // Project entities to screen; pick closest to cursor within a small radius.
     const glm::mat4 view = m_camera.GetViewMatrix();
     const glm::mat4 proj = m_camera.GetProjectionMatrix();
@@ -341,14 +329,71 @@ void MySampleApp::PickAndSelectEntityAtCursor()
         }
     }
 
-    if (!bestStore)
-        return;
+    if (bestStore)
+    {
+        // Clicked on an entity - select it
+        // Clear existing selection and select only this entity.
+        for (const auto &ptr : ecs.stores.stores())
+        {
+            if (!ptr)
+                continue;
+            auto &store = *ptr;
+            auto &masks = store.rowMasks();
+            for (auto &mask : masks)
+                mask.clear(selectedId);
+        }
 
-    // Apply selection and start animation.
-    bestStore->rowMasks()[bestRow].set(selectedId);
-    auto &anim = bestStore->renderAnimations()[bestRow];
-    anim.playing = true;
-    anim.timeSec = 0.0f;
+        // Apply selection
+        bestStore->rowMasks()[bestRow].set(selectedId);
+    }
+    else
+    {
+        // Clicked on ground - move selected units to this position
+        // Ray-cast from camera through cursor to ground plane (Y=0)
+
+        // Convert mouse coords to NDC
+        const float ndcX = (mouseX / width) * 2.0f - 1.0f;
+        const float ndcY = (mouseY / height) * 2.0f - 1.0f;
+
+        // Unproject near and far points
+        const glm::mat4 invVP = glm::inverse(vp);
+        const glm::vec4 nearClip(ndcX, ndcY, 0.0f, 1.0f); // Near plane (z=0 in NDC)
+        const glm::vec4 farClip(ndcX, ndcY, 1.0f, 1.0f);  // Far plane (z=1 in NDC)
+
+        glm::vec4 nearWorld = invVP * nearClip;
+        glm::vec4 farWorld = invVP * farClip;
+
+        if (std::abs(nearWorld.w) > 1e-6f)
+            nearWorld /= nearWorld.w;
+        if (std::abs(farWorld.w) > 1e-6f)
+            farWorld /= farWorld.w;
+
+        const glm::vec3 rayOrigin(nearWorld);
+        const glm::vec3 rayDir = glm::normalize(glm::vec3(farWorld) - glm::vec3(nearWorld));
+
+        // Intersect with ground plane (Y = 0)
+        // Ray: P = O + t * D
+        // Plane: Y = 0  =>  O.y + t * D.y = 0  =>  t = -O.y / D.y
+        if (std::abs(rayDir.y) > 1e-6f)
+        {
+            const float t = -rayOrigin.y / rayDir.y;
+            if (t > 0.0f)
+            {
+                const glm::vec3 hitPoint = rayOrigin + t * rayDir;
+
+                // Send move command to selected units
+                m_systems.SetGlobalMoveTarget(hitPoint.x, 0.0f, hitPoint.z);
+
+                std::cout << "[Move] Ground click at (" << hitPoint.x << ", " << hitPoint.z << ")\n";
+            }
+        }
+    }
+
+    // // Apply selection and start animation.
+    // bestStore->rowMasks()[bestRow].set(selectedId);
+    // auto &anim = bestStore->renderAnimations()[bestRow];
+    // anim.playing = true;
+    // anim.timeSec = 0.0f;
 }
 
 void MySampleApp::ApplyRTSCamera(float aspect)
@@ -381,8 +426,22 @@ void MySampleApp::ApplyRTSCamera(float aspect)
 void MySampleApp::OnRender()
 {
     // Rendering handled by Renderer/Engine.
-     // If ImGui frame active, draw the menu. (Application's Run begins an ImGui frame before OnRender.)
-         // Apply fade-in effect to game world rendering
+    // If ImGui frame active, draw the menu. (Application's Run begins an ImGui frame before OnRender.)
+    Engine::ImGuiLayer *layer = GetImGuiLayer();
+    if (!layer || !layer->isInitialized() || ImGui::GetCurrentContext() == nullptr)
+        return;
+
+    if (m_reloadMenuTextures)
+    {
+        // After swapchain resize, Application recreates the ImGui layer and its descriptor pool.
+        // Any cached ImTextureID (VkDescriptorSet) from before the resize becomes invalid.
+        auto loader = m_menu.GetTextureLoader();
+        if (loader)
+            m_menu.SetTextureLoader(loader);
+        m_reloadMenuTextures = false;
+    }
+
+    // Apply fade-in effect to game world rendering
     if (m_menu.IsFadingToGame())
     {
         float alpha = m_menu.GetGameAlpha();
@@ -402,10 +461,10 @@ void MySampleApp::OnRender()
         {
             std::remove(m_saveFilePath.c_str());
             m_menu.SetHasSaveFile(false);
-    
+
             // Start fade-in effect instead of just hiding
             m_menu.StartGameFadeIn();
-    
+
             // optionally reset game state
         }
         else if (res == MenuManager::Result::ContinueGame)
@@ -416,7 +475,7 @@ void MySampleApp::OnRender()
         }
         else if (res == MenuManager::Result::Exit)
         {
-            std::exit(0);  // Quick exit - no GPU wait, immediate termination
+            std::exit(0); // Quick exit - no GPU wait, immediate termination
         }
     }
 }
@@ -513,6 +572,14 @@ void MySampleApp::OnEvent(const std::string &name)
         Close();
         return;
     }
+
+    if (name == "WindowResize")
+    {
+        // Application handles recreating swapchain/renderer/ImGui.
+        // We just mark UI textures for re-registration next render.
+        m_reloadMenuTextures = true;
+        return;
+    }
 }
 
 void MySampleApp::SaveGameState()
@@ -530,7 +597,7 @@ void MySampleApp::SaveGameState()
     j["win_h"] = static_cast<int>(GetWindow().GetHeight());
 
     // Save GLFW window position if available
-    GLFWwindow* wnd = static_cast<GLFWwindow*>(GetWindow().GetWindowPointer());
+    GLFWwindow *wnd = static_cast<GLFWwindow *>(GetWindow().GetWindowPointer());
     if (wnd)
     {
         int wx = 0, wy = 0;
@@ -547,7 +614,8 @@ void MySampleApp::SaveGameState()
 void MySampleApp::LoadGameState()
 {
     std::ifstream i(m_saveFilePath);
-    if (!i.good()) return;
+    if (!i.good())
+        return;
     json j;
     i >> j;
 
@@ -568,7 +636,7 @@ void MySampleApp::LoadGameState()
     // and directly depending on GLFW types in Sample sources caused the previous undefined-identifier issues.
 
     // Restore window position if saved (use GLFW directly via the window pointer)
-    GLFWwindow* wnd = static_cast<GLFWwindow*>(GetWindow().GetWindowPointer());
+    GLFWwindow *wnd = static_cast<GLFWwindow *>(GetWindow().GetWindowPointer());
     if (wnd)
     {
         int winx = j.value("win_x", INT32_MIN);
@@ -580,13 +648,10 @@ void MySampleApp::LoadGameState()
     }
 }
 
-
 bool MySampleApp::HasSaveFile() const
 {
     std::ifstream f(m_saveFilePath);
     return f.good();
 }
-
-
 
 // Expose the texture loader so callers can query it.

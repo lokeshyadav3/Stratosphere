@@ -16,7 +16,7 @@ namespace Engine
         cleanup();
     }
 
-    bool ImGuiLayer::init(VulkanContext& ctx, Window& window, VkRenderPass renderPass, uint32_t imageCount)
+    bool ImGuiLayer::init(VulkanContext &ctx, Window &window, VkRenderPass renderPass, uint32_t imageCount)
     {
         if (m_initialized)
             return true;
@@ -32,7 +32,7 @@ namespace Engine
         // Setup Dear ImGui context
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
-        ImGuiIO& io = ImGui::GetIO();
+        ImGuiIO &io = ImGui::GetIO();
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
 
@@ -40,7 +40,7 @@ namespace Engine
         setupStyle();
 
         // Setup Platform/Renderer backends
-        GLFWwindow* glfwWindow = static_cast<GLFWwindow*>(window.GetWindowPointer());
+        GLFWwindow *glfwWindow = static_cast<GLFWwindow *>(window.GetWindowPointer());
         ImGui_ImplGlfw_InitForVulkan(glfwWindow, true);
 
         ImGui_ImplVulkan_InitInfo initInfo{};
@@ -72,6 +72,10 @@ namespace Engine
         if (!m_initialized)
             return;
 
+        // Mark uninitialized early so other code paths (e.g. callbacks)
+        // won't attempt to use ImGui during teardown.
+        m_initialized = false;
+
         vkDeviceWaitIdle(m_device);
 
         ImGui_ImplVulkan_Shutdown();
@@ -83,13 +87,13 @@ namespace Engine
             vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
             m_descriptorPool = VK_NULL_HANDLE;
         }
-
-        m_initialized = false;
     }
 
     void ImGuiLayer::beginFrame()
     {
         if (!m_initialized)
+            return;
+        if (ImGui::GetCurrentContext() == nullptr)
             return;
 
         ImGui_ImplVulkan_NewFrame();
@@ -100,6 +104,8 @@ namespace Engine
     void ImGuiLayer::endFrame()
     {
         if (!m_initialized)
+            return;
+        if (ImGui::GetCurrentContext() == nullptr)
             return;
 
         // Call custom render callback
@@ -115,6 +121,8 @@ namespace Engine
     {
         if (!m_initialized)
             return;
+        if (ImGui::GetCurrentContext() == nullptr)
+            return;
 
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
     }
@@ -127,18 +135,17 @@ namespace Engine
     bool ImGuiLayer::createDescriptorPool(VkDevice device)
     {
         VkDescriptorPoolSize poolSizes[] = {
-            { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
-            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
-            { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
-            { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
-            { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
-            { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
-            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
-            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
-            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
-            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
-            { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
-        };
+            {VK_DESCRIPTOR_TYPE_SAMPLER, 1000},
+            {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000},
+            {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000},
+            {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000},
+            {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000},
+            {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000},
+            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000},
+            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000},
+            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000},
+            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000},
+            {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000}};
 
         VkDescriptorPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -157,7 +164,7 @@ namespace Engine
 
     void ImGuiLayer::setupStyle()
     {
-        ImGuiStyle& style = ImGui::GetStyle();
+        ImGuiStyle &style = ImGui::GetStyle();
 
         // Modern dark theme with rounded corners
         style.WindowRounding = 8.0f;
@@ -176,7 +183,7 @@ namespace Engine
         style.FrameBorderSize = 0.0f;
 
         // Color scheme - dark blue/purple theme
-        ImVec4* colors = style.Colors;
+        ImVec4 *colors = style.Colors;
         colors[ImGuiCol_WindowBg] = ImVec4(0.08f, 0.08f, 0.12f, 0.94f);
         colors[ImGuiCol_Border] = ImVec4(0.30f, 0.30f, 0.40f, 0.50f);
         colors[ImGuiCol_FrameBg] = ImVec4(0.15f, 0.15f, 0.20f, 1.00f);
@@ -206,12 +213,14 @@ namespace Engine
         colors[ImGuiCol_PlotLines] = ImVec4(0.40f, 0.80f, 0.40f, 1.00f);
         colors[ImGuiCol_PlotHistogram] = ImVec4(0.40f, 0.60f, 0.80f, 1.00f);
     }
-    
-        ImTextureID ImGuiLayer::addTexture(VkSampler sampler, VkImageView view, VkImageLayout layout)
-{
-    if (!m_initialized)
-        return nullptr;
-    // ImGui_ImplVulkan_AddTexture returns a ImTextureID (void*).
-    return ImGui_ImplVulkan_AddTexture(sampler, view, layout);
-}
+
+    ImTextureID ImGuiLayer::addTexture(VkSampler sampler, VkImageView view, VkImageLayout layout)
+    {
+        if (!m_initialized)
+            return nullptr;
+        if (ImGui::GetCurrentContext() == nullptr)
+            return nullptr;
+        // ImGui_ImplVulkan_AddTexture returns a ImTextureID (void*).
+        return ImGui_ImplVulkan_AddTexture(sampler, view, layout);
+    }
 } // namespace Engine

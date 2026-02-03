@@ -69,8 +69,14 @@ private:
 
     Sample::SystemRunner m_systems;
 
-        // Menu
+    // Menu
     MenuManager m_menu;
+
+    // ImGui Vulkan backend uses ImTextureID as a VkDescriptorSet.
+    // When the window is resized, Application recreates ImGui (descriptor pool),
+    // which invalidates previously cached ImTextureID values. This flag triggers
+    // re-registering textures on the next frame.
+    bool m_reloadMenuTextures = false;
 
     // Small save slot filename
     std::string m_saveFilePath = "sample_save.json";
