@@ -11,7 +11,8 @@ public:
     CommandSystem()
     {
         // Require MoveTarget + MoveSpeed so we only command movable units.
-        setRequiredNames({"MoveTarget", "MoveSpeed"});
+        // Require MoveTarget + MoveSpeed + Path + Facing so we command units properly.
+        setRequiredNames({"MoveTarget", "MoveSpeed", "Path", "Facing"});
         setExcludedNames({"Disabled", "Dead"});
     }
 
@@ -90,6 +91,12 @@ public:
                 const float oz = (static_cast<float>(row) - half) * spacing;
 
                 const uint32_t i = selectedRows[k];
+                auto &paths = const_cast<std::vector<Engine::ECS::Path> &>(store.paths());
+                auto &path = paths[i];
+                path.valid = false; // Invalidate path so PathfindingSystem replans
+                path.count = 0;
+                path.current = 0;
+
                 targets[i].x = clamp(m_pendingX + ox, kMinWorld, kMaxWorld);
                 targets[i].y = m_pendingY; // height
                 targets[i].z = clamp(m_pendingZ + oz, kMinWorld, kMaxWorld);

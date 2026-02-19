@@ -166,6 +166,106 @@ namespace Sample
         const auto anchors = parseAnchors(j);
         const uint32_t selectedId = ecs.components.ensureId("Selected");
 
+        // ---------------------------------------------------------
+        // Spawn Obstacles
+        // ---------------------------------------------------------
+        if (j.contains("obstacles") && j["obstacles"].is_array())
+        {
+            for (const auto &obs : j["obstacles"])
+            {
+                std::string prefabName = obs.value("prefab", "");
+                if (prefabName.empty()) continue;
+
+                const Engine::ECS::Prefab *prefab = ecs.prefabs.get(prefabName);
+                if (!prefab)
+                {
+                    std::cerr << "[Scenario] Missing obstacle prefab: " << prefabName << "\n";
+                    continue;
+                }
+
+                // Line parameters
+                float sx = 0.0f, sz = 0.0f;
+                float ex = 0.0f, ez = 0.0f;
+                if (obs.contains("start")) { sx = obs["start"].value("x", 0.0f); sz = obs["start"].value("z", 0.0f); }
+                if (obs.contains("end"))   { ex = obs["end"].value("x", 0.0f);   ez = obs["end"].value("z", 0.0f); }
+                
+                float spacing = obs.value("spacing", 2.0f);
+                if (spacing <= 0.1f) spacing = 0.1f;
+
+                // Gaps
+                struct Gap { float gx, gz, w; };
+                std::vector<Gap> gaps;
+                if (obs.contains("gaps") && obs["gaps"].is_array())
+                {
+                    for (const auto &g : obs["gaps"])
+                    {
+                        float gx = 0.0f, gz = 0.0f, w = 0.0f;
+                        if (g.contains("center")) { gx = g["center"].value("x", 0.0f); gz = g["center"].value("z", 0.0f); }
+                        w = g.value("width", 0.0f);
+                        gaps.push_back({gx, gz, w});
+                    }
+                }
+
+                // Calculate wall
+                float dx = ex - sx;
+                float dz = ez - sz;
+                float len = std::sqrt(dx*dx + dz*dz);
+                
+                // Normal direction
+                float ndx = (len > 1e-4f) ? dx / len : 0.0f;
+                float ndz = (len > 1e-4f) ? dz / len : 0.0f;
+
+                int count = static_cast<int>(std::floor(len / spacing));
+                // Add one for the end post? Usually walls are segments. 
+                // Let's do points along the line.
+                // If we want to cover start to end inclusive:
+                
+                for (int i = 0; i <= count; ++i)
+                {
+                    float t = static_cast<float>(i) * spacing;
+                    if (t > len) break; // Should not happen with <= count
+
+                    float px = sx + ndx * t;
+                    float pz = sz + ndz * t;
+
+                    // Check gaps
+                    bool inGap = false;
+                    for (const auto &g : gaps)
+                    {
+                        float gdx = px - g.gx;
+                        float gdz = pz - g.gz;
+                        // Simple distance check to gap center
+                        // Ideally we project onto the line, but gaps are defined by center on the line?
+                        // Assuming gaps are circular or just "near" the point.
+                        // Width implies linear gap along the wall.
+                        // Check distance to gap center <= width/2.
+                        float distSq = gdx*gdx + gdz*gdz;
+                        if (distSq <= (g.w * 0.5f) * (g.w * 0.5f))
+                        {
+                            inGap = true;
+                            break;
+                        }
+                    }
+
+                    if (inGap) continue;
+
+                    // Spawn
+                    Engine::ECS::SpawnResult res = Engine::ECS::spawnFromPrefab(*prefab, ecs.components, ecs.archetypes, ecs.stores, ecs.entities);
+                    Engine::ECS::ArchetypeStore *store = ecs.stores.get(res.archetypeId);
+                    if (store && store->hasPosition())
+                    {
+                        auto &p = store->positions()[res.row];
+                        p.x = px;
+                        p.y = 0.0f;
+                        p.z = pz;
+                        
+                        // Facing? Maybe random rotation for variety? Or align with wall?
+                        // Prefab default is 0. Leaves it as is.
+                    }
+                }
+            }
+        }
+
         uint32_t totalSpawned = 0;
         for (const auto &g : j["spawnGroups"])
         {

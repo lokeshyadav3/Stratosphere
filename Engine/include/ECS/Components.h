@@ -87,9 +87,39 @@ namespace Engine::ECS
         float blend = 0.55f;   // velocity smoothing
     };
 
-    // Row-level tag used by selection (no per-row storage; stored in row masks).
     struct Selected
     {
+    };
+
+    // -----------------------
+    // Obstacle Components
+    // -----------------------
+
+    // Tag for static, impassable entities
+    struct Obstacle
+    {
+    };
+
+    // Collision footprint for obstacles (meters)
+    struct ObstacleRadius
+    {
+        float r = 1.0f;
+    };
+
+    // -----------------------
+    // Pathfinding Components
+    // -----------------------
+
+    // Waypoint buffer for A* pathfinding
+    struct Path
+    {
+        static constexpr uint32_t MAX_WAYPOINTS = 64;
+
+        float waypointsX[MAX_WAYPOINTS];
+        float waypointsZ[MAX_WAYPOINTS];
+        uint32_t count = 0;   // how many waypoints are valid
+        uint32_t current = 0; // index of the next waypoint to walk toward
+        bool valid = false;   // was a path successfully found?
     };
 
     struct RenderModel
@@ -115,7 +145,7 @@ namespace Engine::ECS
     };
 
     // Typed defaults per component ID (used by Prefabs/Stores).
-    using DefaultValue = std::variant<Position, Velocity, Health, MoveTarget, MoveSpeed, Radius, Separation, AvoidanceParams, RenderModel, RenderAnimation, Facing>;
+    using DefaultValue = std::variant<Position, Velocity, Health, MoveTarget, MoveSpeed, Radius, Separation, AvoidanceParams, RenderModel, RenderAnimation, Facing, Obstacle, ObstacleRadius, Path>;
     // -----------------------
     // Component Registry
     // -----------------------

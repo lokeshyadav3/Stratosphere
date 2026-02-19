@@ -296,6 +296,29 @@ namespace Engine::ECS
             }
         }
 
+        // Parse defaults: ObstacleRadius
+        {
+            std::regex re_obsR(R"("ObstacleRadius"\s*:\s*\{\s*"r"\s*:\s*([-+]?\d*\.?\d+)\s*\})");
+            std::smatch m;
+            if (std::regex_search(jsonText, m, re_obsR))
+            {
+                ObstacleRadius orad{};
+                orad.r = std::stof(m[1].str());
+                uint32_t cid = registry.ensureId("ObstacleRadius");
+                p.defaults.emplace(cid, orad);
+            }
+        }
+
+        // Parse defaults: Path (mostly for ensuring ID existence if default used)
+        {
+            // Path has no JSON fields for now, but if present in defaults block:
+             if (jsonText.find("\"Path\"") != std::string::npos) 
+             {
+                 // ensure ID
+                (void)registry.ensureId("Path");
+             }
+        }
+
         // Validate defaults align with signature; drop mismatches to keep consistency.
         if (!p.validateDefaults())
         {

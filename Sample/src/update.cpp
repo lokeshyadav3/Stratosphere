@@ -12,14 +12,14 @@ namespace Sample
 
         m_command.buildMasks(registry);
         m_steering.buildMasks(registry);
-        m_spatial.buildMasks(registry);
-        m_avoidance.buildMasks(registry);
+        m_navGridBuilder.buildMasks(registry);
+        m_pathfinding.buildMasks(registry);
         m_movement.buildMasks(registry);
         m_characterAnim.buildMasks(registry);
         m_renderModel.buildMasks(registry);
 
-        // Neighbor radius (meters). Tune later; matches SpatialIndexSystem doc.
-        m_spatial.setCellSize(m_spatial.getCellSize());
+        // Initialize NavGrid (cover map area)
+        m_navGrid.rebuild(2.0f, -400.0f, -400.0f, 400.0f, 400.0f);
 
         m_initialized = true;
     }
@@ -32,13 +32,26 @@ namespace Sample
         if (dtSeconds <= 0.0f)
             return;
 
-        // Suggested order per LocalAvoidanceSystem.h
+        // 1. Input
         m_command.update(ecs.stores, dtSeconds);
+
+        // 2. NavGrid (Rebuild grid from static obstacles)
+        // Optimization: Could check dirty flag, but for now run every frame
+        m_navGridBuilder.update(ecs.stores, dtSeconds);
+
+        // 3. Pathfinding (Plan paths for units with invalid/new targets)
+        m_pathfinding.update(ecs.stores, dtSeconds);
+
+        // 4. Steering (Follow waypoints, update facing)
         m_steering.update(ecs.stores, dtSeconds);
-        // m_spatial.update(ecs.stores, dtSeconds);    // Disabled: SpatialIndexSystem
-        // m_avoidance.update(ecs.stores, dtSeconds);  // Disabled: LocalAvoidanceSystem
+
+        // 5. Movement integration
         m_movement.update(ecs.stores, dtSeconds);
+        
+        // 6. Animation selection
         m_characterAnim.update(ecs.stores, dtSeconds);
+        
+        // 7. Render
         m_renderModel.update(ecs.stores, dtSeconds);
     }
 

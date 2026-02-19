@@ -9,7 +9,9 @@
         "Radius",
         "Separation",
         "AvoidanceParams",
-        "RenderMesh"
+        "RenderMesh",
+        "Facing",
+        "Path"
     ],
     "defaults": {
         "Position": {
@@ -44,7 +46,11 @@
             "strength": 2.5,
             "maxAccel": 8.0,
             "blend": 0.55
-        }
+        },
+        "Facing": {
+            "yaw": 0.0
+        },
+        "Path": {}
     },
     "visual": {
         "model": "assets/Knight/Knight.smodel"

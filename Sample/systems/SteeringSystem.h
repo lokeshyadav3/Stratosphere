@@ -10,8 +10,8 @@ class SteeringSystem : public Engine::ECS::SystemBase
 public:
     SteeringSystem()
     {
-        // Position + Velocity + MoveTarget + MoveSpeed required
-        setRequiredNames({"Position", "Velocity", "MoveTarget", "MoveSpeed"});
+        // Position + Velocity + MoveTarget + MoveSpeed + Path + Facing required
+        setRequiredNames({"Position", "Velocity", "MoveTarget", "MoveSpeed", "Path", "Facing"});
         setExcludedNames({"Disabled", "Dead"});
     }
 
@@ -19,15 +19,12 @@ public:
 
     void update(Engine::ECS::ArchetypeStoreManager &mgr, float dt) override
     {
-        auto clamp = [](float v, float a, float b)
-        { return std::max(a, std::min(v, b)); };
         auto len2 = [](float x, float z)
         { return std::sqrt(x * x + z * z); };
 
         // Gameplay uses meters; stop once we're within a small radius.
-        const float arrivalRadius = 1.0f;  // Increased from 0.25 for easier stopping
-        // Snappy stop: no long slowdown phase.
-        // We'll keep full speed, but clamp the final step so we hit the arrival radius cleanly.
+        const float arrivalRadius = 0.5f; 
+        const float waypointRadius = 0.25f; // Tighter acceptance for precise cornering
 
         for (const auto &ptr : mgr.stores())
         {
@@ -40,15 +37,12 @@ public:
             if (!store.signature().containsNone(excluded()))
                 continue;
 
-            // Accessors: positions, velocities, moveTargets, moveSpeeds
             auto &positions = const_cast<std::vector<Engine::ECS::Position> &>(store.positions());
             auto &velocities = const_cast<std::vector<Engine::ECS::Velocity> &>(store.velocities());
-
-            // You'll add these to ArchetypeStore once you wire MoveTarget/MoveSpeed there:
             auto &targets = const_cast<std::vector<Engine::ECS::MoveTarget> &>(store.moveTargets());
             auto &speeds = const_cast<std::vector<Engine::ECS::MoveSpeed> &>(store.moveSpeeds());
-
-            auto *facings = store.hasFacing() ? &const_cast<std::vector<Engine::ECS::Facing> &>(store.facings()) : nullptr;
+            auto &paths = const_cast<std::vector<Engine::ECS::Path> &>(store.paths());
+            auto &facings = const_cast<std::vector<Engine::ECS::Facing> &>(store.facings());
 
             const auto &masks = store.rowMasks();
             const uint32_t n = store.size();
@@ -62,52 +56,100 @@ public:
                 auto &vel = velocities[i];
                 auto &tgt = targets[i];
                 const auto &spd = speeds[i];
+                auto &path = paths[i];
+                auto &facing = facings[i];
 
                 if (!tgt.active)
+                {
+                    // Stop
+                    vel.x = vel.y = vel.z = 0.0f;
                     continue;
+                }
 
-                float dx = tgt.x - pos.x;
-                float dz = tgt.z - pos.z;
+                // Determine target position: waypoint or final target
+                float tx = tgt.x;
+                float tz = tgt.z;
+                bool isFinal = true;
+
+                if (path.valid && path.current < path.count)
+                {
+                    tx = path.waypointsX[path.current];
+                    tz = path.waypointsZ[path.current];
+                    isFinal = false;
+                }
+
+                float dx = tx - pos.x;
+                float dz = tz - pos.z;
                 float dist = len2(dx, dz);
 
-                if (dist <= arrivalRadius)
+                // Check arrival
+                float radiusToCheck = isFinal ? arrivalRadius : waypointRadius;
+                
+                if (dist <= radiusToCheck)
                 {
-                    vel.x = vel.y = vel.z = 0.0f;
-                    tgt.active = 0;
-                    std::cout << "[Steering] Unit " << i << " ARRIVED at (" << pos.x << ", " << pos.z << ") dist=" << dist << "\n";
-                    continue;
+                    if (isFinal)
+                    {
+                        // Arrived at final destination
+                        vel.x = vel.y = vel.z = 0.0f;
+                        tgt.active = 0;
+                        path.valid = false;
+                        // std::cout << "[Steering] ARRIVED\n";
+                    }
+                    else
+                    {
+                        // Arrived at waypoint
+                        path.current++;
+                        // Don't stop, just steer to next waypoint next frame
+                        // For this frame, we can either keep moving to this waypoint (overshoot slightly)
+                        // or steer to next immediately.
+                        // Let's steer to next immediately to avoid jitter.
+                        if (path.current < path.count)
+                        {
+                            tx = path.waypointsX[path.current];
+                            tz = path.waypointsZ[path.current];
+                            dx = tx - pos.x;
+                            dz = tz - pos.z;
+                            dist = len2(dx, dz);
+                        }
+                        else
+                        {
+                            // Path finished, next is final target
+                            path.valid = false;
+                            tx = tgt.x;
+                            tz = tgt.z;
+                            dx = tx - pos.x;
+                            dz = tz - pos.z;
+                            dist = len2(dx, dz);
+                        }
+                    }
                 }
 
-                // normalize
-                if (dist > 1e-6f)
+                // Move
+                if (dist > 1e-4f)
                 {
-                    dx /= dist;
-                    dz /= dist;
-                }
-                else
-                {
-                    dx = dz = 0.0f;
-                }
+                    // Normalize
+                    float invDist = 1.0f / dist;
+                    dx *= invDist;
+                    dz *= invDist;
 
-                // Snappy stop: constant speed, but avoid "creeping" by clamping so we reach the
-                // arrival radius in this frame (then the next update will stop & clear the target).
-                float desiredSpeed = spd.value;
-                if (dt > 1e-6f)
-                {
-                    const float remaining = std::max(0.0f, dist - arrivalRadius);
-                    const float maxSpeedThisFrame = remaining / dt;
-                    desiredSpeed = std::min(desiredSpeed, maxSpeedThisFrame);
+                    float speed = spd.value;
+                    
+                    // Simple arrival slowing for final target only?
+                    // "Snappy stop" logic from before:
+                    // If isFinal and close, maybe clamp?
+                    // Currently we rely on arrivalRadius check above.
+
+                    vel.x = dx * speed;
+                    vel.z = dz * speed;
+                    vel.y = 0.0f;
+
+                    // Update Facing
+                    // Instant turn
+                    facing.yaw = std::atan2(vel.x, vel.z);
                 }
-
-                vel.x = dx * desiredSpeed;
-                vel.z = dz * desiredSpeed;
-                // Height axis is y; gameplay movement stays on the ground plane for now.
-                vel.y = 0.0f;
-
-                // Update facing if moving
-                if (facings && (vel.x != 0.0f || vel.z != 0.0f))
+                else if (tgt.active) // Close but not arrived? (dist <= radiusToCheck was handled)
                 {
-                    (*facings)[i].yaw = std::atan2(vel.x, vel.z);
+                     // Already handled above
                 }
             }
         }

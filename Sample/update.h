@@ -4,8 +4,9 @@
 
 #include "systems/CommandSystem.h"
 #include "systems/SteeringSystem.h"
-#include "systems/SpatialIndexSystem.h"
-#include "systems/LocalAvoidanceSystem.h"
+#include "systems/NavGrid.h"
+#include "systems/NavGridBuilderSystem.h"
+#include "systems/PathfindingSystem.h"
 #include "systems/MovementSystem.h"
 #include "systems/CharacterAnimationSystem.h"
 #include "systems/RenderSystem.h"
@@ -36,9 +37,11 @@ namespace Sample
 
         CommandSystem m_command;
         SteeringSystem m_steering;
-        SpatialIndexSystem m_spatial{2.0f};
-        LocalAvoidanceSystem m_avoidance{&m_spatial};
         MovementSystem m_movement;
+        
+        NavGrid m_navGrid;
+        NavGridBuilderSystem m_navGridBuilder{&m_navGrid};
+        PathfindingSystem m_pathfinding{&m_navGrid};
 
         CharacterAnimationSystem m_characterAnim;
 
