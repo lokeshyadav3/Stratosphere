@@ -218,11 +218,14 @@ private:
                 if (!m_grid->isWalkable(nx, nz)) continue;
 
                 // Diagonal check: prevent cutting corners
+                // RELAXED: Allow corner cutting because we have massive inflation (3.5m).
+                /*
                 if (i >= 4)
                 {
                     if (!m_grid->isWalkable(current.x, nz) || !m_grid->isWalkable(nx, current.z))
                         continue;
                 }
+                */
 
                 float newG = current.gCost + costs[i];
                 int nIdx = getIdx(nx, nz);

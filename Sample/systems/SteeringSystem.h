@@ -134,18 +134,29 @@ public:
 
                     float speed = spd.value;
                     
-                    // Simple arrival slowing for final target only?
-                    // "Snappy stop" logic from before:
-                    // If isFinal and close, maybe clamp?
-                    // Currently we rely on arrivalRadius check above.
+                    // Inertia / Smoothing Logic
+                    // Calculate target velocity
+                    float targetVx = dx * speed;
+                    float targetVz = dz * speed;
 
-                    vel.x = dx * speed;
-                    vel.z = dz * speed;
+                    // Acceleration factor (how fast we change velocity). 
+                    // 10.0f - 15.0f gives a nice "weighted" feel.
+                    const float acceleration = 15.0f; 
+
+                    float diffX = targetVx - vel.x;
+                    float diffZ = targetVz - vel.z;
+                    
+                    // Integrate acceleration
+                    vel.x += diffX * acceleration * dt;
+                    vel.z += diffZ * acceleration * dt;
                     vel.y = 0.0f;
 
-                    // Update Facing
-                    // Instant turn
-                    facing.yaw = std::atan2(vel.x, vel.z);
+                    // Update Facing based on actual velocity (smooth turn)
+                    // Only update if velocity is significant
+                    if (std::abs(vel.x) > 0.1f || std::abs(vel.z) > 0.1f)
+                    {
+                        facing.yaw = std::atan2(vel.x, vel.z);
+                    }
                 }
                 else if (tgt.active) // Close but not arrived? (dist <= radiusToCheck was handled)
                 {
