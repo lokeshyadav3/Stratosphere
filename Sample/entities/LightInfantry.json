@@ -9,7 +9,8 @@
         "Radius",
         "Separation",
         "AvoidanceParams",
-        "RenderMesh"
+        "RenderMesh",
+        "Facing"
     ],
     "defaults": {
         "Position": {
@@ -44,6 +45,9 @@
             "strength": 2.5,
             "maxAccel": 8.0,
             "blend": 0.55
+        },
+        "Facing": {
+            "yaw": 0.0
         }
     },
     "visual": {

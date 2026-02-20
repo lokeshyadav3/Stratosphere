@@ -2,7 +2,6 @@
 
 #include <imgui.h>
 #include <chrono>
-#include <iostream>
 
 namespace
 {
@@ -33,50 +32,25 @@ void MenuManager::SetTextureLoader(TextureLoaderFn loader)
         // Attempt to load (non-fatal if missing)
         try
         {
-            std::cout << "[MenuManager] Attempting to load button textures..." << std::endl;
-
             m_background = nullptr; // Don't load background (as per your requirement)
 
             m_tex[0] = m_loader("assets/raw/newgame.png");
-            if (m_tex[0])
-            {
-                std::cout << "[MenuManager] ✓ newgame.png loaded successfully" << std::endl;
-            }
-            else
-            {
-                std::cout << "[MenuManager] ✗ newgame.png failed to load" << std::endl;
-            }
+            (void)m_tex[0];
 
             m_tex[1] = m_loader("assets/raw/continuegame.png");
-            if (m_tex[1])
-            {
-                std::cout << "[MenuManager] ✓ continuegame.png loaded successfully" << std::endl;
-            }
-            else
-            {
-                std::cout << "[MenuManager] ✗ continuegame.png failed to load" << std::endl;
-            }
+            (void)m_tex[1];
 
             m_tex[2] = m_loader("assets/raw/exit.png");
-            if (m_tex[2])
-            {
-                std::cout << "[MenuManager] ✓ exit.png loaded successfully" << std::endl;
-            }
-            else
-            {
-                std::cout << "[MenuManager] ✗ exit.png failed to load" << std::endl;
-            }
+            (void)m_tex[2];
         }
         catch (const std::exception &e)
         {
-            std::cerr << "[MenuManager] Exception while loading textures: " << e.what() << std::endl;
             // Ignore loader errors; continue with text-only buttons
             m_background = nullptr;
             m_tex = {nullptr, nullptr, nullptr};
         }
         catch (...)
         {
-            std::cerr << "[MenuManager] Unknown exception while loading textures" << std::endl;
             // Ignore loader errors; continue with text-only buttons
             m_background = nullptr;
             m_tex = {nullptr, nullptr, nullptr};
