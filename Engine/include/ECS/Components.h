@@ -21,6 +21,7 @@
 #include <unordered_map>
 #include <variant>
 #include <assets/Handles.h>
+#include <glm/glm.hpp>
 
 namespace Engine::ECS
 {
@@ -87,7 +88,8 @@ namespace Engine::ECS
         float blend = 0.55f;   // velocity smoothing
     };
 
-    // Row-level tag used by selection (no per-row storage; stored in row masks).
+    // Tag-like component used by selection.
+    // Stored in the archetype signature (no per-row storage).
     struct Selected
     {
     };
@@ -111,11 +113,22 @@ namespace Engine::ECS
     // 0 = facing +Z, PI/2 = facing +X, PI = facing -Z, -PI/2 = facing -X
     struct Facing
     {
-        float yaw = 0.0f;  // Rotation around Y axis in radians
+        float yaw = 0.0f; // Rotation around Y axis in radians
+    };
+
+    // Cached pose palettes computed by PoseUpdateSystem.
+    // nodePalette: one matrix per node in the model.
+    // jointPalette: one matrix per joint across all skins in the model (flattened).
+    struct PosePalette
+    {
+        std::vector<glm::mat4> nodePalette;
+        std::vector<glm::mat4> jointPalette;
+        uint32_t nodeCount = 0;
+        uint32_t jointCount = 0;
     };
 
     // Typed defaults per component ID (used by Prefabs/Stores).
-    using DefaultValue = std::variant<Position, Velocity, Health, MoveTarget, MoveSpeed, Radius, Separation, AvoidanceParams, RenderModel, RenderAnimation, Facing>;
+    using DefaultValue = std::variant<Position, Velocity, Health, MoveTarget, MoveSpeed, Radius, Separation, AvoidanceParams, RenderModel, RenderAnimation, Facing, PosePalette>;
     // -----------------------
     // Component Registry
     // -----------------------
