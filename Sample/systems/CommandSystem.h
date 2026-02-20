@@ -11,7 +11,8 @@ public:
     CommandSystem()
     {
         // Require MoveTarget + MoveSpeed so we only command movable units.
-        setRequiredNames({"MoveTarget", "MoveSpeed"});
+        // Selected is now an archetype tag, not a per-row mask.
+        setRequiredNames({"Selected", "MoveTarget", "MoveSpeed"});
         setExcludedNames({"Disabled", "Dead"});
     }
 
@@ -20,7 +21,7 @@ public:
     void buildMasks(Engine::ECS::ComponentRegistry &registry) override
     {
         Engine::ECS::SystemBase::buildMasks(registry);
-        m_selectedId = registry.ensureId("Selected");
+        m_moveTargetId = registry.ensureId("MoveTarget");
     }
 
     // Set the last clicked target; system will write it to entities on next update.
@@ -32,53 +33,39 @@ public:
         m_pendingZ = z;
     }
 
-    void update(Engine::ECS::ArchetypeStoreManager &mgr, float /*dt*/) override
+    void update(Engine::ECS::ECSContext &ecs, float /*dt*/) override
     {
         if (!m_hasPending)
             return;
 
-        // Formation tuning in gameplay world coordinates (meters).
-        // Ground plane is X/Z (Y is height).
-        constexpr float spacing = 0.5f; // distance between formation slots
-
+        constexpr float spacing = 0.5f;
         constexpr float kMinWorld = -10000.0f;
         constexpr float kMaxWorld = 10000.0f;
 
         auto clamp = [](float v, float a, float b)
         { return std::max(a, std::min(v, b)); };
 
-        for (const auto &ptr : mgr.stores())
+        if (m_queryId == Engine::ECS::QueryManager::InvalidQuery)
+            m_queryId = ecs.queries.createQuery(required(), excluded(), ecs.stores);
+
+        uint32_t totalSelected = 0;
+        uint32_t totalUpdated = 0;
+
+        const auto &q = ecs.queries.get(m_queryId);
+        for (uint32_t archetypeId : q.matchingArchetypeIds)
         {
-            if (!ptr)
+            Engine::ECS::ArchetypeStore *storePtr = ecs.stores.get(archetypeId);
+            if (!storePtr)
                 continue;
-            auto &store = *ptr;
-            if (!store.signature().containsAll(required()))
-                continue;
-            if (!store.signature().containsNone(excluded()))
-                continue;
+            auto &store = *storePtr;
 
             auto &targets = const_cast<std::vector<Engine::ECS::MoveTarget> &>(store.moveTargets());
-            auto &masks = store.rowMasks();
-            const uint32_t n = store.size();
-
-            // Collect selected rows first so we can distribute target offsets.
-            std::vector<uint32_t> selectedRows;
-            selectedRows.reserve(n);
-            for (uint32_t i = 0; i < n; ++i)
-            {
-                if (!masks[i].matches(required(), excluded()))
-                    continue;
-                if (m_selectedId == Engine::ECS::ComponentRegistry::InvalidID || !masks[i].has(m_selectedId))
-                    continue;
-                selectedRows.push_back(i);
-            }
-
-            const uint32_t selCount = static_cast<uint32_t>(selectedRows.size());
+            const uint32_t selCount = store.size();
             if (selCount == 0)
                 continue;
 
-            // Distribute selected units over a centered grid around the clicked target.
-            // Example (selCount=5, side=3): offsets at (-1, -1), (0,-1), (1,-1), (-1,0), (0,0) * spacing.
+            totalSelected += selCount;
+
             const uint32_t side = static_cast<uint32_t>(std::ceil(std::sqrt(static_cast<float>(selCount))));
             const float half = (static_cast<float>(side) - 1.0f) * 0.5f;
 
@@ -89,16 +76,14 @@ public:
                 const float ox = (static_cast<float>(col) - half) * spacing;
                 const float oz = (static_cast<float>(row) - half) * spacing;
 
-                const uint32_t i = selectedRows[k];
-                targets[i].x = clamp(m_pendingX + ox, kMinWorld, kMaxWorld);
-                targets[i].y = m_pendingY; // height
-                targets[i].z = clamp(m_pendingZ + oz, kMinWorld, kMaxWorld);
-                targets[i].active = 1;
-            }
+                targets[k].x = clamp(m_pendingX + ox, kMinWorld, kMaxWorld);
+                targets[k].y = m_pendingY;
+                targets[k].z = clamp(m_pendingZ + oz, kMinWorld, kMaxWorld);
+                targets[k].active = 1;
 
-            std::cout << "[CommandSystem] Selected=" << selCount
-                      << " baseTarget=(" << m_pendingX << "," << m_pendingZ << ")"
-                      << " gridSide=" << side << " spacing=" << spacing << "\n";
+                ecs.markDirty(m_moveTargetId, archetypeId, k);
+                ++totalUpdated;
+            }
         }
 
         m_hasPending = false;
@@ -107,5 +92,6 @@ public:
 private:
     bool m_hasPending = false;
     float m_pendingX = 0.0f, m_pendingY = 0.0f, m_pendingZ = 0.0f;
-    uint32_t m_selectedId = Engine::ECS::ComponentRegistry::InvalidID;
+    Engine::ECS::QueryId m_queryId = Engine::ECS::QueryManager::InvalidQuery;
+    uint32_t m_moveTargetId = Engine::ECS::ComponentRegistry::InvalidID;
 };

@@ -3,7 +3,6 @@
 #include "ECS/Components.h"
 #include <algorithm>
 #include <cmath>
-#include <iostream>
 
 class SteeringSystem : public Engine::ECS::SystemBase
 {
@@ -17,27 +16,46 @@ public:
 
     const char *name() const override { return "SteeringSystem"; }
 
-    void update(Engine::ECS::ArchetypeStoreManager &mgr, float dt) override
+    void buildMasks(Engine::ECS::ComponentRegistry &registry) override
     {
+        Engine::ECS::SystemBase::buildMasks(registry);
+        m_positionId = registry.ensureId("Position");
+        m_velocityId = registry.ensureId("Velocity");
+        m_moveTargetId = registry.ensureId("MoveTarget");
+        m_facingId = registry.ensureId("Facing");
+    }
+
+    void update(Engine::ECS::ECSContext &ecs, float dt) override
+    {
+        if (m_queryId == Engine::ECS::QueryManager::InvalidQuery)
+        {
+            // Re-steer when the target changes, and also when position changes (movement).
+            Engine::ECS::ComponentMask dirty;
+            dirty.set(m_positionId);
+            dirty.set(m_moveTargetId);
+            m_queryId = ecs.queries.createDirtyQuery(required(), excluded(), dirty, ecs.stores);
+        }
+
         auto clamp = [](float v, float a, float b)
         { return std::max(a, std::min(v, b)); };
         auto len2 = [](float x, float z)
         { return std::sqrt(x * x + z * z); };
 
         // Gameplay uses meters; stop once we're within a small radius.
-        const float arrivalRadius = 1.0f;  // Increased from 0.25 for easier stopping
+        const float arrivalRadius = 1.0f; // Increased from 0.25 for easier stopping
         // Snappy stop: no long slowdown phase.
         // We'll keep full speed, but clamp the final step so we hit the arrival radius cleanly.
 
-        for (const auto &ptr : mgr.stores())
+        const auto &q = ecs.queries.get(m_queryId);
+        for (uint32_t archetypeId : q.matchingArchetypeIds)
         {
-            if (!ptr)
+            Engine::ECS::ArchetypeStore *storePtr = ecs.stores.get(archetypeId);
+            if (!storePtr)
                 continue;
-            auto &store = *ptr;
+            auto &store = *storePtr;
 
-            if (!store.signature().containsAll(required()))
-                continue;
-            if (!store.signature().containsNone(excluded()))
+            auto dirtyRows = ecs.queries.consumeDirtyRows(m_queryId, archetypeId);
+            if (dirtyRows.empty())
                 continue;
 
             // Accessors: positions, velocities, moveTargets, moveSpeeds
@@ -49,13 +67,11 @@ public:
             auto &speeds = const_cast<std::vector<Engine::ECS::MoveSpeed> &>(store.moveSpeeds());
 
             auto *facings = store.hasFacing() ? &const_cast<std::vector<Engine::ECS::Facing> &>(store.facings()) : nullptr;
-
-            const auto &masks = store.rowMasks();
             const uint32_t n = store.size();
 
-            for (uint32_t i = 0; i < n; ++i)
+            for (uint32_t i : dirtyRows)
             {
-                if (!masks[i].matches(required(), excluded()))
+                if (i >= n)
                     continue;
 
                 auto &pos = positions[i];
@@ -74,7 +90,8 @@ public:
                 {
                     vel.x = vel.y = vel.z = 0.0f;
                     tgt.active = 0;
-                    std::cout << "[Steering] Unit " << i << " ARRIVED at (" << pos.x << ", " << pos.z << ") dist=" << dist << "\n";
+                    ecs.markDirty(m_velocityId, archetypeId, i);
+                    ecs.markDirty(m_moveTargetId, archetypeId, i);
                     continue;
                 }
 
@@ -104,12 +121,27 @@ public:
                 // Height axis is y; gameplay movement stays on the ground plane for now.
                 vel.y = 0.0f;
 
+                ecs.markDirty(m_velocityId, archetypeId, i);
+
+                // Keep active targets updating every frame even if position doesn't change
+                // (e.g., blocked movement). This avoids scanning the whole store.
+                if (tgt.active)
+                    ecs.markDirty(m_moveTargetId, archetypeId, i);
+
                 // Update facing if moving
                 if (facings && (vel.x != 0.0f || vel.z != 0.0f))
                 {
                     (*facings)[i].yaw = std::atan2(vel.x, vel.z);
+                    ecs.markDirty(m_facingId, archetypeId, i);
                 }
             }
         }
     }
+
+private:
+    Engine::ECS::QueryId m_queryId = Engine::ECS::QueryManager::InvalidQuery;
+    uint32_t m_positionId = Engine::ECS::ComponentRegistry::InvalidID;
+    uint32_t m_velocityId = Engine::ECS::ComponentRegistry::InvalidID;
+    uint32_t m_moveTargetId = Engine::ECS::ComponentRegistry::InvalidID;
+    uint32_t m_facingId = Engine::ECS::ComponentRegistry::InvalidID;
 };

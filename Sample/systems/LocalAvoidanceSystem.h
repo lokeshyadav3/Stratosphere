@@ -40,9 +40,15 @@ public:
 
     const char *name() const override { return "LocalAvoidanceSystem"; }
 
+    void buildMasks(Engine::ECS::ComponentRegistry &registry) override
+    {
+        Engine::ECS::SystemBase::buildMasks(registry);
+        m_velocityId = registry.ensureId("Velocity");
+    }
+
     void setGrid(const SpatialIndexSystem *grid) { m_grid = grid; }
 
-    void update(Engine::ECS::ArchetypeStoreManager &mgr, float dt) override
+    void update(Engine::ECS::ECSContext &ecs, float dt) override
     {
         if (!m_grid)
             return;
@@ -58,27 +64,25 @@ public:
         auto lerp = [](float a, float b, float t)
         { return a + (b - a) * t; };
 
-        uint32_t sid = 0;
-        for (const auto &ptr : mgr.stores())
+        if (m_queryId == Engine::ECS::QueryManager::InvalidQuery)
         {
-            if (!ptr)
-            {
-                ++sid;
-                continue;
-            }
-            auto &store = *ptr;
+            // Avoidance should run each frame for moving entities.
+            Engine::ECS::ComponentMask dirty;
+            dirty.set(m_velocityId);
+            m_queryId = ecs.queries.createDirtyQuery(required(), excluded(), dirty, ecs.stores);
+        }
 
-            // Store-level mask filter
-            if (!store.signature().containsAll(required()))
-            {
-                ++sid;
+        const auto &q = ecs.queries.get(m_queryId);
+        for (uint32_t archetypeId : q.matchingArchetypeIds)
+        {
+            auto *storePtr = ecs.stores.get(archetypeId);
+            if (!storePtr)
                 continue;
-            }
-            if (!store.signature().containsNone(excluded()))
-            {
-                ++sid;
+            auto &store = *storePtr;
+
+            auto dirtyRows = ecs.queries.consumeDirtyRows(m_queryId, archetypeId);
+            if (dirtyRows.empty())
                 continue;
-            }
 
             auto &positions = const_cast<std::vector<Engine::ECS::Position> &>(store.positions());
             auto &velocities = const_cast<std::vector<Engine::ECS::Velocity> &>(store.velocities());
@@ -86,12 +90,10 @@ public:
             auto &params = const_cast<std::vector<Engine::ECS::AvoidanceParams> &>(store.avoidanceParams());
             const bool hasSep = store.hasSeparation();
             auto *sepsPtr = hasSep ? &const_cast<std::vector<Engine::ECS::Separation> &>(store.separations()) : nullptr;
-            const auto &masks = store.rowMasks();
-
             const uint32_t n = store.size();
-            for (uint32_t row = 0; row < n; ++row)
+            for (uint32_t row : dirtyRows)
             {
-                if (!masks[row].matches(required(), excluded()))
+                if (row >= n)
                     continue;
 
                 auto &p = positions[row];
@@ -106,9 +108,9 @@ public:
                 m_grid->forNeighbors(p.x, p.z, [&](uint32_t nStoreId, uint32_t nRow)
                                      {
                     // Skip self
-                    if (nStoreId == sid && nRow == row) return;
+                    if (nStoreId == archetypeId && nRow == row) return;
 
-                    const auto* nStore = mgr.get(nStoreId);
+                    const auto* nStore = ecs.stores.get(nStoreId);
                     if (!nStore) return;
                     if (!nStore->hasPosition()) return;
                     if (!nStore->hasRadius()) return;
@@ -182,12 +184,18 @@ public:
                 v.x = lerp(vPrefX, vNewX, t);
                 v.z = lerp(vPrefZ, vNewZ, t);
                 // Leave v.y unchanged (height axis)
-            }
 
-            ++sid;
+                // Only propagate/keep active if still moving or velocity actually changed.
+                const float dv1 = std::fabs(v.x - vPrefX) + std::fabs(v.z - vPrefZ);
+                const float speed1 = std::fabs(v.x) + std::fabs(v.y) + std::fabs(v.z);
+                if (dv1 > 1e-6f || speed1 > 1e-6f)
+                    ecs.markDirty(m_velocityId, archetypeId, row);
+            }
         }
     }
 
 private:
     const SpatialIndexSystem *m_grid = nullptr; // not owned
+    uint32_t m_velocityId = Engine::ECS::ComponentRegistry::InvalidID;
+    Engine::ECS::QueryId m_queryId = Engine::ECS::QueryManager::InvalidQuery;
 };
