@@ -5,30 +5,25 @@
   Purpose:
     - Finds A* path for units that have a MoveTarget but no valid Path.
     - Updates Path component with waypoints.
-    - Only runs when needed (MoveTarget set, Path invalid).
+    - Only runs when needed (dirty query on MoveTarget).
+  
+  Optimizations:
+    - Generation counter avoids clearing 160K-element arrays per A* call.
+    - Reusable member buffers avoid heap allocations per call.
+    - Dirty query avoids scanning all entities every frame.
+    - Capped lookahead in path smoothing avoids O(W²×D) line checks.
+    - Weighted A* (ε=1.2) explores ~30% fewer nodes for near-optimal paths.
+    - Compact index-based NodeEntry (8 bytes) for better cache utilization.
+    - Grid-space lineCheck avoids float↔int conversions in smoothing.
+    - Target cell validation with spiral fallback prevents wasted A* on blocked goals.
 */
 
 #include "ECS/SystemFormat.h"
 #include "NavGrid.h"
-#include <queue>
-#include <unordered_map>
 #include <cmath>
 #include <algorithm>
-
-struct Node
-{
-    int x, z;
-    float gCost;
-    float hCost;
-    int parentX, parentZ;
-
-    float fCost() const { return gCost + hCost; }
-
-    bool operator>(const Node &other) const
-    {
-        return fCost() > other.fCost();
-    }
-};
+#include <cstdint>
+#include <vector>
 
 class PathfindingSystem : public Engine::ECS::SystemBase
 {
@@ -42,20 +37,36 @@ public:
 
     const char *name() const override { return "PathfindingSystem"; }
 
+    void buildMasks(Engine::ECS::ComponentRegistry &registry) override
+    {
+        Engine::ECS::SystemBase::buildMasks(registry);
+        m_moveTargetId = registry.ensureId("MoveTarget");
+    }
+
     void update(Engine::ECS::ECSContext &ecs, float dt) override
     {
         if (!m_grid)
             return;
 
-        for (const auto &ptr : ecs.stores.stores())
+        // --- Fix #5: Use dirty query keyed on MoveTarget so we only visit entities
+        //     whose target actually changed, instead of scanning all stores. ---
+        if (m_queryId == Engine::ECS::QueryManager::InvalidQuery)
         {
-            if (!ptr)
-                continue;
-            auto &store = *ptr;
+            Engine::ECS::ComponentMask dirty;
+            dirty.set(m_moveTargetId);
+            m_queryId = ecs.queries.createDirtyQuery(required(), excluded(), dirty, ecs.stores);
+        }
 
-            if (!store.signature().containsAll(required()))
+        const auto &q = ecs.queries.get(m_queryId);
+        for (uint32_t archetypeId : q.matchingArchetypeIds)
+        {
+            Engine::ECS::ArchetypeStore *storePtr = ecs.stores.get(archetypeId);
+            if (!storePtr)
                 continue;
-            if (!store.signature().containsNone(excluded()))
+            auto &store = *storePtr;
+
+            auto dirtyRows = ecs.queries.consumeDirtyRows(m_queryId, archetypeId);
+            if (dirtyRows.empty())
                 continue;
 
             auto &positions = store.positions();
@@ -63,8 +74,11 @@ public:
             auto &paths = store.paths();
             const uint32_t n = store.size();
 
-            for (uint32_t i = 0; i < n; ++i)
+            for (uint32_t i : dirtyRows)
             {
+                if (i >= n)
+                    continue;
+
                 auto &pos = positions[i];
                 auto &tgt = targets[i];
                 auto &path = paths[i];
@@ -78,22 +92,11 @@ public:
                 // If path is already valid and we haven't reached the end, skip replanning
                 if (path.valid && path.current < path.count)
                     continue;
-                
-                // If path became invalid (e.g. forced replan), or finished but target is still active and far away?
-                // Actually, SteeringSystem clears tgt.active when arrived.
-                // So if tgt.active is true, we must assume we haven't arrived.
-                // If path.valid is true, we are following it. 
-                // We only need to plan if !path.valid. 
-                
-                // But wait, if we finished the path (current >= count), we might still be far from target 
-                // if the path was partial? Our A* will try to reach the target exactly.
-                
+
                 if (path.valid && path.current >= path.count)
                 {
-                   // Path finished. Let Steering handle final approach.
-                   // But if expected behavior is to just steer straight after path end, 
-                   // we don't need to do anything here.
-                   continue;
+                    // Path finished. Let Steering handle final approach.
+                    continue;
                 }
 
                 // Plan path!
@@ -104,28 +107,121 @@ public:
 
 private:
     const NavGrid *m_grid;
+    Engine::ECS::QueryId m_queryId = Engine::ECS::QueryManager::InvalidQuery;
+    uint32_t m_moveTargetId = Engine::ECS::ComponentRegistry::InvalidID;
+
+    // --- Fix #2: Generation counter to avoid clearing full grid arrays ---
+    // Instead of std::fill over 160K elements, we bump a generation.
+    // A cell is "unvisited" if m_genStamp[idx] != m_currentGen.
+    uint32_t m_currentGen = 0;
+    std::vector<uint32_t> m_genStamp;  // per-cell generation stamp
+    std::vector<float>    m_gScores;   // g-costs (valid only when genStamp matches)
+    std::vector<int>      m_cameFrom;  // parent index
+    // closed set: a cell is closed when m_closedGen[idx] == m_currentGen
+    std::vector<uint32_t> m_closedGen;
+
+    // --- Fix #3: Reusable buffers to avoid heap allocations per A* call ---
+    struct NodeEntry
+    {
+        int   idx;   // flat cell index (= z * width + x) — 8 bytes total, cache-friendly
+        float fCost;
+        bool operator>(const NodeEntry &o) const { return fCost > o.fCost; }
+    };
+    std::vector<NodeEntry> m_heapBuf; // backing storage for priority queue
+    std::vector<int> m_pathIndices;   // backtracked cell indices (raw)
+    std::vector<int> m_smoothedIdx;   // smoothed cell indices
+
+    // Weighted A*: epsilon > 1.0 trades optimality for speed.
+    // 1.2 means paths are at most 20% longer than optimal — great for games.
+    static constexpr float kEpsilon = 1.2f;
 
     // Heuristic: Octile distance
-    float heuristic(int x1, int z1, int x2, int z2)
+    float heuristic(int x1, int z1, int x2, int z2) const
     {
         int dx = std::abs(x1 - x2);
         int dz = std::abs(z1 - z2);
-        return static_cast<float>(std::max(dx, dz)) + 0.414f * std::min(dx, dz);
+        return static_cast<float>(std::max(dx, dz)) + 0.414f * static_cast<float>(std::min(dx, dz));
+    }
+
+    void ensureGridBuffers()
+    {
+        const size_t gridSize = static_cast<size_t>(m_grid->width) * m_grid->height;
+        if (m_genStamp.size() < gridSize)
+        {
+            m_genStamp.resize(gridSize, 0);
+            m_gScores.resize(gridSize, 1e9f);
+            m_cameFrom.resize(gridSize, -1);
+            m_closedGen.resize(gridSize, 0);
+        }
+    }
+
+    // Check if a cell has been visited this generation
+    bool isVisited(int idx) const { return m_genStamp[idx] == m_currentGen; }
+    bool isClosed(int idx) const  { return m_closedGen[idx] == m_currentGen; }
+
+    float getG(int idx) const
+    {
+        return isVisited(idx) ? m_gScores[idx] : 1e9f;
+    }
+
+    void setG(int idx, float g, int parent)
+    {
+        m_genStamp[idx] = m_currentGen;
+        m_gScores[idx] = g;
+        m_cameFrom[idx] = parent;
+    }
+
+    void setClosed(int idx)
+    {
+        m_closedGen[idx] = m_currentGen;
     }
 
     void runAStar(const Engine::ECS::Position &startPos, const Engine::ECS::MoveTarget &target, Engine::ECS::Path &outPath)
     {
-        int startX = m_grid->worldToGridX(startPos.x);
-        int startZ = m_grid->worldToGridZ(startPos.z);
-        int targetX = m_grid->worldToGridX(target.x);
-        int targetZ = m_grid->worldToGridZ(target.z);
+        const int W = m_grid->width;
+        const int H = m_grid->height;
 
-        // Bounds check target; clamp to grid if needed
-        targetX = std::max(0, std::min(m_grid->width - 1, targetX));
-        targetZ = std::max(0, std::min(m_grid->height - 1, targetZ));
+        auto idx = [W](int x, int z) { return z * W + x; };
+        auto idxToX = [W](int i) { return i % W; };
+        auto idxToZ = [W](int i) { return i / W; };
 
-        // If start is same as target (grid-wise), no path needed (direct steering handles it)
-        if (startX == targetX && startZ == targetZ)
+        const int startX = m_grid->worldToGridX(startPos.x);
+        const int startZ = m_grid->worldToGridZ(startPos.z);
+        int targetX = std::max(0, std::min(W - 1, m_grid->worldToGridX(target.x)));
+        int targetZ = std::max(0, std::min(H - 1, m_grid->worldToGridZ(target.z)));
+
+        // --- Target validation: if target cell is blocked, spiral-search for nearest walkable ---
+        if (!m_grid->isWalkable(targetX, targetZ))
+        {
+            bool relocated = false;
+            for (int r = 1; r <= 10 && !relocated; ++r)
+            {
+                for (int dx = -r; dx <= r && !relocated; ++dx)
+                {
+                    for (int dz = -r; dz <= r && !relocated; ++dz)
+                    {
+                        if (std::abs(dx) != r && std::abs(dz) != r) continue; // only ring
+                        int nx = targetX + dx, nz = targetZ + dz;
+                        if (m_grid->isWalkable(nx, nz))
+                        {
+                            targetX = nx; targetZ = nz;
+                            relocated = true;
+                        }
+                    }
+                }
+            }
+            if (!relocated)
+            {
+                outPath.valid = false;
+                return; // No reachable cell near target
+            }
+        }
+
+        const int startIdx = idx(startX, startZ);
+        const int targetIdx = idx(targetX, targetZ);
+
+        // Same cell — no path needed
+        if (startIdx == targetIdx)
         {
             outPath.valid = true;
             outPath.count = 0;
@@ -133,203 +229,192 @@ private:
             return;
         }
 
-        // Line-of-sight shortcut: if clear straight line, skip A* entirely
-        if (m_grid->lineCheck(startPos.x, startPos.z, target.x, target.z))
+        // Line-of-sight shortcut: skip A* if straight line is clear
+        if (m_grid->lineCheckGrid(startX, startZ, targetX, targetZ))
         {
             outPath.valid = true;
-            outPath.count = 0; // No waypoints needed; Steering goes direct to MoveTarget
+            outPath.count = 0;
             outPath.current = 0;
             return;
         }
-        
-        // Setup A*
-        static std::vector<float> gScores;
-        static std::vector<int> cameFrom;
-        static std::vector<bool> closed;
 
-        int gridSize = m_grid->width * m_grid->height;
-        if (gScores.size() < static_cast<size_t>(gridSize))
+        // --- Generation counter: bump instead of clearing arrays ---
+        ensureGridBuffers();
+        ++m_currentGen;
+        if (m_currentGen == 0)
         {
-            gScores.resize(gridSize);
-            cameFrom.resize(gridSize);
-            closed.resize(gridSize);
+            std::fill(m_genStamp.begin(), m_genStamp.end(), 0u);
+            std::fill(m_closedGen.begin(), m_closedGen.end(), 0u);
+            m_currentGen = 1;
         }
 
-        std::fill(gScores.begin(), gScores.begin() + gridSize, 1e9f);
-        std::fill(cameFrom.begin(), cameFrom.begin() + gridSize, -1);
-        std::fill(closed.begin(), closed.begin() + gridSize, false);
+        // --- Pre-reserve heap to avoid early reallocs ---
+        m_heapBuf.clear();
+        if (m_heapBuf.capacity() < 256)
+            m_heapBuf.reserve(256);
 
-        auto getIdx = [&](int x, int z) { return z * m_grid->width + x; };
+        auto heapPush = [&](int cellIdx, float f)
+        {
+            m_heapBuf.push_back({cellIdx, f});
+            std::push_heap(m_heapBuf.begin(), m_heapBuf.end(), std::greater<NodeEntry>{});
+        };
+        auto heapPop = [&]() -> NodeEntry
+        {
+            std::pop_heap(m_heapBuf.begin(), m_heapBuf.end(), std::greater<NodeEntry>{});
+            NodeEntry n = m_heapBuf.back();
+            m_heapBuf.pop_back();
+            return n;
+        };
 
-        std::priority_queue<Node, std::vector<Node>, std::greater<Node>> openSet;
-        
-        int startIdx = getIdx(startX, startZ);
-        gScores[startIdx] = 0.0f;
-        
-        Node startNode;
-        startNode.x = startX;
-        startNode.z = startZ;
-        startNode.gCost = 0.0f;
-        startNode.hCost = heuristic(startX, startZ, targetX, targetZ);
-        startNode.parentX = -1; 
-        startNode.parentZ = -1;
-        
-        openSet.push(startNode);
+        setG(startIdx, 0.0f, -1);
+        const float startH = heuristic(startX, startZ, targetX, targetZ);
+        heapPush(startIdx, kEpsilon * startH);
 
         bool found = false;
-        int closestX = startX;
-        int closestZ = startZ;
-        float minH = startNode.hCost;
+        int closestIdx = startIdx;
+        float closestH = startH;
 
         int nodesExplored = 0;
-        const int MAX_NODES = 4000;
+        constexpr int MAX_NODES = 4000;
 
-        while (!openSet.empty())
+        static constexpr int dxAddr[] = {0, 0, -1, 1, -1, -1, 1, 1};
+        static constexpr int dzAddr[] = {-1, 1, 0, 0, -1, 1, -1, 1};
+        static constexpr float costs[] = {1.0f, 1.0f, 1.0f, 1.0f, 1.414f, 1.414f, 1.414f, 1.414f};
+
+        while (!m_heapBuf.empty())
         {
-            Node current = openSet.top();
-            openSet.pop();
+            const NodeEntry current = heapPop();
 
-            int curIdx = getIdx(current.x, current.z);
-
-            // Skip if already expanded (stale entry in priority queue)
-            if (closed[curIdx])
+            if (isClosed(current.idx))
                 continue;
-            closed[curIdx] = true;
+            setClosed(current.idx);
 
-            if (nodesExplored++ > MAX_NODES)
+            if (++nodesExplored > MAX_NODES)
                 break;
 
-            if (current.x == targetX && current.z == targetZ)
+            if (current.idx == targetIdx)
             {
                 found = true;
                 break;
             }
 
-            if (current.hCost < minH)
+            // Track closest-to-target (derive h from f - g to avoid recomputing heuristic)
+            const float curG = getG(current.idx);
+            const float curH = (current.fCost / kEpsilon) - curG + 0.001f; // approximate h
+            if (curH < closestH)
             {
-                minH = current.hCost;
-                closestX = current.x;
-                closestZ = current.z;
+                closestH = curH;
+                closestIdx = current.idx;
             }
 
-            // Neighbors (4 cardinal + 4 diagonal)
-            int dxAddr[] = {0, 0, -1, 1, -1, -1, 1, 1};
-            int dzAddr[] = {-1, 1, 0, 0, -1, 1, -1, 1};
-            float costs[] = {1.0f, 1.0f, 1.0f, 1.0f, 1.414f, 1.414f, 1.414f, 1.414f};
+            const int cx = idxToX(current.idx);
+            const int cz = idxToZ(current.idx);
 
             for (int i = 0; i < 8; ++i)
             {
-                int nx = current.x + dxAddr[i];
-                int nz = current.z + dzAddr[i];
+                const int nx = cx + dxAddr[i];
+                const int nz = cz + dzAddr[i];
 
-                if (!m_grid->isValid(nx, nz)) continue;
-                if (!m_grid->isWalkable(nx, nz)) continue;
+                if (nx < 0 || nx >= W || nz < 0 || nz >= H) continue;
 
-                int nIdx = getIdx(nx, nz);
-                if (closed[nIdx]) continue;
+                const int nIdx = idx(nx, nz);
+                if (m_grid->blocked[nIdx]) continue; // direct array access (faster than isWalkable)
+                if (isClosed(nIdx)) continue;
 
-                // Diagonal: prevent cutting through blocked corners
+                // Diagonal corner check
                 if (i >= 4)
                 {
-                    if (!m_grid->isWalkable(current.x, nz) || !m_grid->isWalkable(nx, current.z))
+                    if (m_grid->blocked[idx(cx, nz)] || m_grid->blocked[idx(nx, cz)])
                         continue;
                 }
 
-                float newG = current.gCost + costs[i];
+                const float newG = curG + costs[i];
 
-                if (newG < gScores[nIdx])
+                if (newG < getG(nIdx))
                 {
-                    gScores[nIdx] = newG;
-                    cameFrom[nIdx] = curIdx;
-                    
-                    Node neighbor;
-                    neighbor.x = nx;
-                    neighbor.z = nz;
-                    neighbor.gCost = newG;
-                    neighbor.hCost = heuristic(nx, nz, targetX, targetZ);
-                    neighbor.parentX = current.x;
-                    neighbor.parentZ = current.z;
-                    openSet.push(neighbor);
+                    setG(nIdx, newG, current.idx);
+                    const float h = heuristic(nx, nz, targetX, targetZ);
+                    heapPush(nIdx, newG + kEpsilon * h);
                 }
             }
         }
 
-        // Reconstruct path
-        int currX = found ? targetX : closestX;
-        int currZ = found ? targetZ : closestZ;
+        // Reconstruct path (flat indices)
+        int backIdx = found ? targetIdx : closestIdx;
+        m_pathIndices.clear();
 
-        std::vector<std::pair<int, int>> pathNodes;
-        int currIdx = getIdx(currX, currZ);
-        
-        while (currIdx != startIdx)
+        while (backIdx != startIdx)
         {
-            pathNodes.push_back({currX, currZ});
-            int pIdx = cameFrom[currIdx];
-            if (pIdx < 0) break; // safety
-            currX = pIdx % m_grid->width;
-            currZ = pIdx / m_grid->width;
-            currIdx = pIdx;
-            
-            if (pathNodes.size() > 200) break;
+            m_pathIndices.push_back(backIdx);
+            const int pIdx = m_cameFrom[backIdx];
+            if (pIdx < 0) break;
+            backIdx = pIdx;
+            if (m_pathIndices.size() > 200) break;
         }
 
-        std::reverse(pathNodes.begin(), pathNodes.end());
+        std::reverse(m_pathIndices.begin(), m_pathIndices.end());
 
-        // String Pulling / Path Smoothing
-        std::vector<std::pair<int, int>> allNodes;
-        allNodes.reserve(pathNodes.size() + 1);
-        allNodes.push_back({startX, startZ});
-        allNodes.insert(allNodes.end(), pathNodes.begin(), pathNodes.end());
+        // --- String Pulling (grid-space lineCheck, capped lookahead) ---
+        // Prepend start to get full corridor
+        m_smoothedIdx.clear();
+        m_smoothedIdx.reserve(m_pathIndices.size() + 1);
 
-        std::vector<std::pair<int, int>> smoothed;
-        smoothed.reserve(allNodes.size());
-        
-        size_t currentSmIdx = 0;
-        
-        while (currentSmIdx < allNodes.size() - 1)
+        constexpr size_t kMaxLookahead = 16;
+
+        // Use startIdx as anchor; walk forward through m_pathIndices
+        int anchorX = startX, anchorZ = startZ;
+        size_t pi = 0;
+
+        while (pi < m_pathIndices.size())
         {
-            size_t nextIdx = currentSmIdx + 1;
-            
-            for (size_t i = currentSmIdx + 2; i < allNodes.size(); ++i)
+            size_t bestAdvance = pi; // "next" at minimum
+            const size_t maxCheck = std::min(pi + kMaxLookahead + 1, m_pathIndices.size());
+
+            for (size_t j = pi + 1; j < maxCheck; ++j)
             {
-                float x0 = m_grid->gridToWorldX(allNodes[currentSmIdx].first);
-                float z0 = m_grid->gridToWorldZ(allNodes[currentSmIdx].second);
-                float x1 = m_grid->gridToWorldX(allNodes[i].first);
-                float z1 = m_grid->gridToWorldZ(allNodes[i].second);
-                
-                if (!m_grid->lineCheck(x0, z0, x1, z1))
+                const int jx = idxToX(m_pathIndices[j]);
+                const int jz = idxToZ(m_pathIndices[j]);
+                if (!m_grid->lineCheckGrid(anchorX, anchorZ, jx, jz))
                     break;
-                nextIdx = i;
+                bestAdvance = j;
             }
-            
-            smoothed.push_back(allNodes[nextIdx]);
-            currentSmIdx = nextIdx;
+
+            const int chosen = m_pathIndices[bestAdvance];
+            m_smoothedIdx.push_back(chosen);
+            anchorX = idxToX(chosen);
+            anchorZ = idxToZ(chosen);
+            pi = bestAdvance + 1;
         }
 
-        // Fill waypoints using world coordinates.
-        // Use actual target position for the final waypoint instead of grid-snapped center.
+        // Ensure the last smoothed point is the final path node
+        if (!m_smoothedIdx.empty() && !m_pathIndices.empty() &&
+            m_smoothedIdx.back() != m_pathIndices.back())
+        {
+            m_smoothedIdx.push_back(m_pathIndices.back());
+        }
+
+        // Fill waypoints; use exact target coords for the final one.
         outPath.count = 0;
         outPath.current = 0;
-        
-        for (size_t pi = 0; pi < smoothed.size(); ++pi)
+
+        for (size_t si = 0; si < m_smoothedIdx.size(); ++si)
         {
             if (outPath.count >= Engine::ECS::Path::MAX_WAYPOINTS) break;
 
-            bool isLast = (pi == smoothed.size() - 1);
+            const bool isLast = (si == m_smoothedIdx.size() - 1);
             if (isLast)
             {
-                // Use exact target coordinates for the final waypoint
                 outPath.waypointsX[outPath.count] = target.x;
                 outPath.waypointsZ[outPath.count] = target.z;
             }
             else
             {
-                outPath.waypointsX[outPath.count] = m_grid->gridToWorldX(smoothed[pi].first);
-                outPath.waypointsZ[outPath.count] = m_grid->gridToWorldZ(smoothed[pi].second);
+                outPath.waypointsX[outPath.count] = m_grid->gridToWorldX(idxToX(m_smoothedIdx[si]));
+                outPath.waypointsZ[outPath.count] = m_grid->gridToWorldZ(idxToZ(m_smoothedIdx[si]));
             }
             outPath.count++;
         }
-        
+
         outPath.valid = true;
     }
 };

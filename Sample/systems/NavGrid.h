@@ -24,6 +24,9 @@ public:
     // 0 = walkable, 1 = blocked
     std::vector<uint8_t> blocked;
 
+    // Dirty flag — set true when obstacles change; NavGridBuilderSystem clears it after rebuild.
+    bool dirty = true;
+
     void rebuild(float cSize, float minX, float minZ, float maxX, float maxZ)
     {
         cellSize = (cSize > 0.1f) ? cSize : 2.0f;
@@ -112,6 +115,29 @@ public:
         if (!isValid(gx, gz))
             return false;
         return blocked[gz * width + gx] == 0;
+    }
+
+    /// Line-of-sight check entirely in grid space (avoids float↔int conversions).
+    /// Bresenham's from (gx0,gz0) to (gx1,gz1).  Returns true if every cell is walkable.
+    bool lineCheckGrid(int gx0, int gz0, int gx1, int gz1) const
+    {
+        int dx = std::abs(gx1 - gx0);
+        int dz = std::abs(gz1 - gz0);
+        int sx = (gx0 < gx1) ? 1 : -1;
+        int sz = (gz0 < gz1) ? 1 : -1;
+        int err = dx - dz;
+
+        while (true)
+        {
+            if (!isWalkable(gx0, gz0))
+                return false;
+            if (gx0 == gx1 && gz0 == gz1)
+                break;
+            int e2 = 2 * err;
+            if (e2 > -dz) { err -= dz; gx0 += sx; }
+            if (e2 < dx)  { err += dx; gz0 += sz; }
+        }
+        return true;
     }
 
     void markObstacle(float wx, float wz, float radius)

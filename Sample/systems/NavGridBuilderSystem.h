@@ -29,6 +29,10 @@ public:
         if (!m_grid)
             return;
 
+        // Only rebuild when the grid is marked dirty (initial build or obstacle change).
+        if (!m_grid->dirty)
+            return;
+
         // Reset grid: mark all as walkable
         std::fill(m_grid->blocked.begin(), m_grid->blocked.end(), 0);
 
@@ -53,6 +57,8 @@ public:
                 m_grid->markObstacle(positions[i].x, positions[i].z, radii[i].r + 1.0f);
             }
         }
+
+        m_grid->dirty = false;
     }
 
 private:
