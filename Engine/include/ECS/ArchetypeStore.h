@@ -18,6 +18,8 @@
 #include <unordered_map>
 #include <memory>
 #include <variant>
+#include <limits>
+#include <functional>
 #include "ECS/Components.h"
 #include "ECS/Entity.h"
 
@@ -34,8 +36,6 @@ namespace Engine::ECS
         {
             const uint32_t row = static_cast<uint32_t>(m_entities.size());
             m_entities.emplace_back(e);
-            // Initialize row mask: start with the store signature (you can add tags per row later)
-            m_rowMasks.emplace_back(m_signature);
 
             // Conditionally create per-component entries based on signature bits.
             if (hasPosition())
@@ -64,16 +64,26 @@ namespace Engine::ECS
                 m_obstacleRadii.emplace_back(ObstacleRadius{});
             if (hasPath())
                 m_paths.emplace_back(Path{});
+            if (hasPosePalette())
+                m_posePalettes.emplace_back(PosePalette{});
 
             return row;
         }
 
-        // Swap-remove a row; maintains dense arrays and updates ownership.
-        void destroyRow(uint32_t row)
+        // Swap-remove a row; maintains dense arrays.
+        // Returns the entity that was moved into 'row' (the previous last entity) when row!=last.
+        // Returns an invalid entity when the removed row was already the last row, or if row was out of range.
+        Entity destroyRowSwap(uint32_t row)
         {
+            if (m_entities.empty())
+                return Entity{};
             const uint32_t last = static_cast<uint32_t>(m_entities.size() - 1);
             if (row > last)
-                return;
+                return Entity{};
+
+            Entity moved{};
+            if (row != last)
+                moved = m_entities[last];
 
             auto swapErase = [&](auto &vec)
             {
@@ -83,7 +93,6 @@ namespace Engine::ECS
             };
 
             swapErase(m_entities);
-            swapErase(m_rowMasks);
             if (hasPosition())
                 swapErase(m_positions);
             if (hasVelocity())
@@ -110,6 +119,16 @@ namespace Engine::ECS
                 swapErase(m_obstacleRadii);
             if (hasPath())
                 swapErase(m_paths);
+            if (hasPosePalette())
+                swapErase(m_posePalettes);
+
+            return moved;
+        }
+
+        // Backwards-compatible API; does not report the moved entity.
+        void destroyRow(uint32_t row)
+        {
+            (void)destroyRowSwap(row);
         }
 
         // Apply typed defaults for a newly created row.
@@ -174,6 +193,10 @@ namespace Engine::ECS
                 {
                     m_paths[row] = std::get<Path>(kv.second);
                 }
+                else if (std::holds_alternative<PosePalette>(kv.second) && hasPosePalette())
+                {
+                    m_posePalettes[row] = std::get<PosePalette>(kv.second);
+                }
             }
         }
 
@@ -181,9 +204,7 @@ namespace Engine::ECS
         const ComponentMask &signature() const { return m_signature; }
         uint32_t size() const { return static_cast<uint32_t>(m_entities.size()); }
 
-        // Row-level masks (e.g., exclude tags applied per row).
-        std::vector<ComponentMask> &rowMasks() { return m_rowMasks; }
-        const std::vector<ComponentMask> &rowMasks() const { return m_rowMasks; }
+        const std::vector<Entity> &entities() const { return m_entities; }
 
         // Component arrays (conditionally enabled).
         std::vector<Position> &positions() { return m_positions; }
@@ -224,6 +245,8 @@ namespace Engine::ECS
 
         std::vector<Path> &paths() { return m_paths; }
         const std::vector<Path> &paths() const { return m_paths; }
+        std::vector<PosePalette> &posePalettes() { return m_posePalettes; }
+        const std::vector<PosePalette> &posePalettes() const { return m_posePalettes; }
 
         // Helpers
         bool hasPosition() const { return m_hasPosition; }
@@ -240,6 +263,7 @@ namespace Engine::ECS
         bool hasObstacle() const { return m_hasObstacle; }
         bool hasObstacleRadius() const { return m_hasObstacleRadius; }
         bool hasPath() const { return m_hasPath; }
+        bool hasPosePalette() const { return m_hasPosePalette; }
 
         // Resolve which known components are present in signature; enables arrays accordingly.
         void resolveKnownComponents(ComponentRegistry &registry)
@@ -258,6 +282,7 @@ namespace Engine::ECS
             const uint32_t obsId = registry.ensureId("Obstacle");
             const uint32_t obsRId = registry.ensureId("ObstacleRadius");
             const uint32_t pathId = registry.ensureId("Path");
+            const uint32_t ppId = registry.ensureId("PosePalette");
             m_hasPosition = m_signature.has(posId);
             m_hasVelocity = m_signature.has(velId);
             m_hasHealth = m_signature.has(heaId);
@@ -272,12 +297,12 @@ namespace Engine::ECS
             m_hasObstacle = m_signature.has(obsId);
             m_hasObstacleRadius = m_signature.has(obsRId);
             m_hasPath = m_signature.has(pathId);
+            m_hasPosePalette = m_signature.has(ppId);
         }
 
     private:
         ComponentMask m_signature;
         std::vector<Entity> m_entities;
-        std::vector<ComponentMask> m_rowMasks;
 
         // Component arrays (only used if signature includes them).
         std::vector<Position> m_positions;
@@ -293,6 +318,7 @@ namespace Engine::ECS
         std::vector<Facing> m_facings;
         std::vector<ObstacleRadius> m_obstacleRadii;
         std::vector<Path> m_paths;
+        std::vector<PosePalette> m_posePalettes;
 
         // Flags indicating which arrays are active.
         bool m_hasPosition = false;
@@ -309,11 +335,17 @@ namespace Engine::ECS
         bool m_hasObstacle = false;
         bool m_hasObstacleRadius = false;
         bool m_hasPath = false;
+        bool m_hasPosePalette = false;
     };
 
     class ArchetypeStoreManager
     {
     public:
+        void setOnStoreCreated(std::function<void(uint32_t archetypeId, const ComponentMask &signature)> cb)
+        {
+            m_onStoreCreated = std::move(cb);
+        }
+
         ArchetypeStore *getOrCreate(uint32_t archetypeId, const ComponentMask &signature, ComponentRegistry &registry)
         {
             if (archetypeId >= m_stores.size())
@@ -323,6 +355,8 @@ namespace Engine::ECS
             {
                 m_stores[archetypeId] = std::make_unique<ArchetypeStore>(signature);
                 m_stores[archetypeId]->resolveKnownComponents(registry);
+                if (m_onStoreCreated)
+                    m_onStoreCreated(archetypeId, signature);
             }
             return m_stores[archetypeId].get();
         }
@@ -332,10 +366,16 @@ namespace Engine::ECS
             return (archetypeId < m_stores.size()) ? m_stores[archetypeId].get() : nullptr;
         }
 
+        const ArchetypeStore *get(uint32_t archetypeId) const
+        {
+            return (archetypeId < m_stores.size()) ? m_stores[archetypeId].get() : nullptr;
+        }
+
         const std::vector<std::unique_ptr<ArchetypeStore>> &stores() const { return m_stores; }
 
     private:
         std::vector<std::unique_ptr<ArchetypeStore>> m_stores;
+        std::function<void(uint32_t archetypeId, const ComponentMask &signature)> m_onStoreCreated;
     };
 
 } // namespace Engine::ECS

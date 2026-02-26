@@ -42,12 +42,12 @@ public:
 
     const char *name() const override { return "PathfindingSystem"; }
 
-    void update(Engine::ECS::ArchetypeStoreManager &mgr, float dt) override
+    void update(Engine::ECS::ECSContext &ecs, float dt) override
     {
         if (!m_grid)
             return;
 
-        for (const auto &ptr : mgr.stores())
+        for (const auto &ptr : ecs.stores.stores())
         {
             if (!ptr)
                 continue;
@@ -61,14 +61,10 @@ public:
             auto &positions = store.positions();
             auto &targets = store.moveTargets();
             auto &paths = store.paths();
-            const auto &masks = store.rowMasks();
             const uint32_t n = store.size();
 
             for (uint32_t i = 0; i < n; ++i)
             {
-                if (!masks[i].matches(required(), excluded()))
-                    continue;
-
                 auto &pos = positions[i];
                 auto &tgt = targets[i];
                 auto &path = paths[i];
@@ -136,25 +132,32 @@ private:
             outPath.current = 0;
             return;
         }
+
+        // Line-of-sight shortcut: if clear straight line, skip A* entirely
+        if (m_grid->lineCheck(startPos.x, startPos.z, target.x, target.z))
+        {
+            outPath.valid = true;
+            outPath.count = 0; // No waypoints needed; Steering goes direct to MoveTarget
+            outPath.current = 0;
+            return;
+        }
         
         // Setup A*
-        // Use a flat array for closed set / g-scores if grid is small enough?
-        // Grid is ~122k cells. Vector valid/visited flags is fast.
         static std::vector<float> gScores;
-        static std::vector<int> cameFrom; // stores parent index: z * width + x
-        static std::vector<bool> inOpenSet;
+        static std::vector<int> cameFrom;
+        static std::vector<bool> closed;
 
         int gridSize = m_grid->width * m_grid->height;
         if (gScores.size() < static_cast<size_t>(gridSize))
         {
             gScores.resize(gridSize);
             cameFrom.resize(gridSize);
-            inOpenSet.resize(gridSize);
+            closed.resize(gridSize);
         }
 
-        std::fill(gScores.begin(), gScores.end(), 1e9f); // Infinity
-        std::fill(cameFrom.begin(), cameFrom.end(), -1);
-        std::fill(inOpenSet.begin(), inOpenSet.end(), false);
+        std::fill(gScores.begin(), gScores.begin() + gridSize, 1e9f);
+        std::fill(cameFrom.begin(), cameFrom.begin() + gridSize, -1);
+        std::fill(closed.begin(), closed.begin() + gridSize, false);
 
         auto getIdx = [&](int x, int z) { return z * m_grid->width + x; };
 
@@ -172,7 +175,6 @@ private:
         startNode.parentZ = -1;
         
         openSet.push(startNode);
-        inOpenSet[startIdx] = true;
 
         bool found = false;
         int closestX = startX;
@@ -180,13 +182,19 @@ private:
         float minH = startNode.hCost;
 
         int nodesExplored = 0;
-        const int MAX_NODES = 2000; // Bail out if path too long/complex
+        const int MAX_NODES = 4000;
 
         while (!openSet.empty())
         {
             Node current = openSet.top();
             openSet.pop();
-            inOpenSet[getIdx(current.x, current.z)] = false; // It's closed now
+
+            int curIdx = getIdx(current.x, current.z);
+
+            // Skip if already expanded (stale entry in priority queue)
+            if (closed[curIdx])
+                continue;
+            closed[curIdx] = true;
 
             if (nodesExplored++ > MAX_NODES)
                 break;
@@ -204,7 +212,7 @@ private:
                 closestZ = current.z;
             }
 
-            // Neighbors
+            // Neighbors (4 cardinal + 4 diagonal)
             int dxAddr[] = {0, 0, -1, 1, -1, -1, 1, 1};
             int dzAddr[] = {-1, 1, 0, 0, -1, 1, -1, 1};
             float costs[] = {1.0f, 1.0f, 1.0f, 1.0f, 1.414f, 1.414f, 1.414f, 1.414f};
@@ -217,23 +225,22 @@ private:
                 if (!m_grid->isValid(nx, nz)) continue;
                 if (!m_grid->isWalkable(nx, nz)) continue;
 
-                // Diagonal check: prevent cutting corners
-                // RELAXED: Allow corner cutting because we have massive inflation (3.5m).
-                /*
+                int nIdx = getIdx(nx, nz);
+                if (closed[nIdx]) continue;
+
+                // Diagonal: prevent cutting through blocked corners
                 if (i >= 4)
                 {
                     if (!m_grid->isWalkable(current.x, nz) || !m_grid->isWalkable(nx, current.z))
                         continue;
                 }
-                */
 
                 float newG = current.gCost + costs[i];
-                int nIdx = getIdx(nx, nz);
 
                 if (newG < gScores[nIdx])
                 {
                     gScores[nIdx] = newG;
-                    cameFrom[nIdx] = getIdx(current.x, current.z);
+                    cameFrom[nIdx] = curIdx;
                     
                     Node neighbor;
                     neighbor.x = nx;
@@ -243,13 +250,11 @@ private:
                     neighbor.parentX = current.x;
                     neighbor.parentZ = current.z;
                     openSet.push(neighbor);
-                    inOpenSet[nIdx] = true;
                 }
             }
         }
 
         // Reconstruct path
-        // If not found, path to closest
         int currX = found ? targetX : closestX;
         int currZ = found ? targetZ : closestZ;
 
@@ -260,68 +265,68 @@ private:
         {
             pathNodes.push_back({currX, currZ});
             int pIdx = cameFrom[currIdx];
-            // Decode parent
+            if (pIdx < 0) break; // safety
             currX = pIdx % m_grid->width;
             currZ = pIdx / m_grid->width;
             currIdx = pIdx;
             
-            // Safety break
             if (pathNodes.size() > 200) break;
         }
 
-        // Simplify: just reverse
         std::reverse(pathNodes.begin(), pathNodes.end());
 
-        // Fill component
-        outPath.count = 0;
-        outPath.current = 0;
-        // Skip first node if it's the start node (usually A* doesn't include start in cameFrom chain unless we add it, here we stop at startIdx)
-        
         // String Pulling / Path Smoothing
-        // 1. Combine start + pathNodes into a single list
         std::vector<std::pair<int, int>> allNodes;
         allNodes.reserve(pathNodes.size() + 1);
         allNodes.push_back({startX, startZ});
         allNodes.insert(allNodes.end(), pathNodes.begin(), pathNodes.end());
 
-        // 2. Greedy simplification
         std::vector<std::pair<int, int>> smoothed;
         smoothed.reserve(allNodes.size());
         
-        size_t currentIdx = 0;
+        size_t currentSmIdx = 0;
         
-        while (currentIdx < allNodes.size() - 1)
+        while (currentSmIdx < allNodes.size() - 1)
         {
-            size_t nextIdx = currentIdx + 1;
+            size_t nextIdx = currentSmIdx + 1;
             
-            // Try to look as far ahead as possible
-            for (size_t i = currentIdx + 2; i < allNodes.size(); ++i)
+            for (size_t i = currentSmIdx + 2; i < allNodes.size(); ++i)
             {
-                float x0 = m_grid->gridToWorldX(allNodes[currentIdx].first);
-                float z0 = m_grid->gridToWorldZ(allNodes[currentIdx].second);
+                float x0 = m_grid->gridToWorldX(allNodes[currentSmIdx].first);
+                float z0 = m_grid->gridToWorldZ(allNodes[currentSmIdx].second);
                 float x1 = m_grid->gridToWorldX(allNodes[i].first);
                 float z1 = m_grid->gridToWorldZ(allNodes[i].second);
                 
                 if (!m_grid->lineCheck(x0, z0, x1, z1))
-                {
-                    break; 
-                }
+                    break;
                 nextIdx = i;
             }
             
             smoothed.push_back(allNodes[nextIdx]);
-            currentIdx = nextIdx;
+            currentSmIdx = nextIdx;
         }
 
-        // Fill component
+        // Fill waypoints using world coordinates.
+        // Use actual target position for the final waypoint instead of grid-snapped center.
         outPath.count = 0;
         outPath.current = 0;
         
-        for (const auto& p : smoothed)
+        for (size_t pi = 0; pi < smoothed.size(); ++pi)
         {
             if (outPath.count >= Engine::ECS::Path::MAX_WAYPOINTS) break;
-            outPath.waypointsX[outPath.count] = m_grid->gridToWorldX(p.first);
-            outPath.waypointsZ[outPath.count] = m_grid->gridToWorldZ(p.second);
+
+            bool isLast = (pi == smoothed.size() - 1);
+            if (isLast)
+            {
+                // Use exact target coordinates for the final waypoint
+                outPath.waypointsX[outPath.count] = target.x;
+                outPath.waypointsZ[outPath.count] = target.z;
+            }
+            else
+            {
+                outPath.waypointsX[outPath.count] = m_grid->gridToWorldX(smoothed[pi].first);
+                outPath.waypointsZ[outPath.count] = m_grid->gridToWorldZ(smoothed[pi].second);
+            }
             outPath.count++;
         }
         

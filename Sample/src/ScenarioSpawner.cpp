@@ -309,7 +309,7 @@ namespace Sample
                 x += jitter(rng);
                 z += jitter(rng);
 
-                Engine::ECS::SpawnResult res = Engine::ECS::spawnFromPrefab(*prefab, ecs.components, ecs.archetypes, ecs.stores, ecs.entities);
+                Engine::ECS::SpawnResult res = Engine::ECS::spawnFromPrefab(*prefab, ecs);
                 Engine::ECS::ArchetypeStore *store = ecs.stores.get(res.archetypeId);
                 if (!store || !store->hasPosition())
                     continue;
@@ -321,7 +321,7 @@ namespace Sample
 
                 if (selectSpawned)
                 {
-                    store->rowMasks()[res.row].set(selectedId);
+                    ecs.addTag(res.entity, selectedId);
                 }
 
                 ++totalSpawned;

@@ -24,7 +24,7 @@ public:
         : m_assets(assets)
     {
         // We need Position to build a model matrix later.
-        setRequiredNames({"RenderModel", "RenderAnimation", "Position"});
+        setRequiredNames({"RenderModel", "PosePalette", "Position"});
         setExcludedNames({"Disabled", "Dead"});
     }
 
@@ -34,7 +34,7 @@ public:
     void setRenderer(Engine::Renderer *renderer) { m_renderer = renderer; }
     void setCamera(Engine::Camera *camera) { m_camera = camera; }
 
-    void update(Engine::ECS::ArchetypeStoreManager &mgr, float dt) override
+    void update(Engine::ECS::ECSContext &ecs, float dt) override
     {
         if (!m_assets || !m_renderer || !m_camera)
             return;
@@ -52,21 +52,18 @@ public:
 
             std::vector<glm::mat4> jointPalette; // flattened: [instance][joint]
             uint32_t jointCount = 0;
-
-            // scratch (reused per instance)
-            std::vector<Engine::ModelAsset::NodeTRS> trsScratch;
-            std::vector<glm::mat4> localsScratch;
-            std::vector<glm::mat4> globalsScratch;
-            std::vector<uint8_t> visitedScratch;
-
-            std::vector<glm::mat4> jointsScratch;
         };
 
         std::unordered_map<uint64_t, PerModelBatch> batchesByModel;
         std::unordered_map<uint64_t, Engine::ModelHandle> handleByKey;
 
-        for (const auto &ptr : mgr.stores())
+        if (m_queryId == Engine::ECS::QueryManager::InvalidQuery)
+            m_queryId = ecs.queries.createQuery(required(), excluded(), ecs.stores);
+
+        const auto &q = ecs.queries.get(m_queryId);
+        for (uint32_t archetypeId : q.matchingArchetypeIds)
         {
+            auto *ptr = ecs.stores.get(archetypeId);
             if (!ptr)
                 continue;
 
@@ -77,29 +74,24 @@ public:
                 continue;
             if (!store.hasRenderModel())
                 continue;
-            if (!store.hasRenderAnimation())
+            if (!store.hasPosePalette())
                 continue;
             if (!store.hasPosition())
                 continue;
 
             auto &renderModels = store.renderModels();
-            auto &renderAnimations = store.renderAnimations();
             auto &positions = store.positions();
-            const auto &masks = store.rowMasks();
+            auto &posePalettes = store.posePalettes();
             const uint32_t n = store.size();
 
             for (uint32_t row = 0; row < n; ++row)
             {
-                if (!masks[row].matches(required(), excluded()))
-                    continue;
-
                 const Engine::ModelHandle handle = renderModels[row].handle;
                 Engine::ModelAsset *asset = m_assets->getModel(handle);
                 if (!asset)
                     continue;
 
                 const uint64_t key = keyFromHandle(handle);
-                const auto &anim = renderAnimations[row];
 
                 const auto &pos = positions[row];
 
@@ -108,10 +100,15 @@ public:
                 auto &batch = batchesByModel[key];
                 if (batch.nodeCount == 0)
                 {
-                    batch.nodeCount = static_cast<uint32_t>(asset->nodes.size());
-                    batch.nodePalette.reserve(64u * batch.nodeCount);
+                    // Prefer counts from PosePalette (it is what we will upload).
+                    batch.nodeCount = posePalettes[row].nodeCount;
+                    batch.jointCount = posePalettes[row].jointCount;
+                    if (batch.nodeCount == 0)
+                        batch.nodeCount = static_cast<uint32_t>(asset->nodes.size());
+                    if (batch.jointCount == 0)
+                        batch.jointCount = asset->totalJointCount;
 
-                    batch.jointCount = asset->totalJointCount;
+                    batch.nodePalette.reserve(64u * batch.nodeCount);
                     if (batch.jointCount > 0)
                         batch.jointPalette.reserve(64u * batch.jointCount);
                 }
@@ -122,7 +119,7 @@ public:
                 // World matrix
                 auto *facings = store.hasFacing() ? &store.facings() : nullptr;
                 glm::mat4 world = glm::translate(glm::mat4(1.0f), glm::vec3(pos.x, pos.y, pos.z));
-                
+
                 if (facings)
                 {
                     const float yaw = (*facings)[row].yaw;
@@ -131,49 +128,23 @@ public:
 
                 batch.instanceWorlds.emplace_back(world);
 
-                const uint32_t safeClip = (!asset->animClips.empty())
-                                              ? std::min(anim.clipIndex, static_cast<uint32_t>(asset->animClips.size() - 1))
-                                              : 0u;
-                const float timeSec = (!asset->animClips.empty() && anim.playing) ? anim.timeSec : 0.0f;
-
-                // Node palette for this instance
-                asset->evaluatePoseInto(safeClip, timeSec,
-                                        batch.trsScratch,
-                                        batch.localsScratch,
-                                        batch.globalsScratch,
-                                        batch.visitedScratch);
-                if (batch.globalsScratch.size() == batch.nodeCount)
+                // Palettes come from PosePalette component.
+                const auto &pose = posePalettes[row];
+                if (pose.nodeCount == batch.nodeCount && pose.nodePalette.size() == static_cast<size_t>(batch.nodeCount))
                 {
-                    batch.nodePalette.insert(batch.nodePalette.end(), batch.globalsScratch.begin(), batch.globalsScratch.end());
+                    batch.nodePalette.insert(batch.nodePalette.end(), pose.nodePalette.begin(), pose.nodePalette.end());
+                }
+                else
+                {
+                    batch.nodePalette.insert(batch.nodePalette.end(), batch.nodeCount, glm::mat4(1.0f));
                 }
 
-                // Joint palette for this instance
-                if (batch.jointCount > 0 && batch.globalsScratch.size() == batch.nodeCount)
+                if (batch.jointCount > 0)
                 {
-                    batch.jointsScratch.assign(batch.jointCount, glm::mat4(1.0f));
-
-                    for (const auto &skin : asset->skins)
-                    {
-                        if (skin.jointCount == 0)
-                            continue;
-                        for (uint32_t j = 0; j < skin.jointCount; ++j)
-                        {
-                            if (j >= skin.jointNodeIndices.size() || j >= skin.inverseBind.size())
-                                continue;
-
-                            const uint32_t nodeIx = skin.jointNodeIndices[j];
-                            if (nodeIx >= batch.globalsScratch.size())
-                                continue;
-
-                            const uint32_t outIx = skin.jointBase + j;
-                            if (outIx >= batch.jointsScratch.size())
-                                continue;
-
-                            batch.jointsScratch[outIx] = batch.globalsScratch[nodeIx] * skin.inverseBind[j];
-                        }
-                    }
-
-                    batch.jointPalette.insert(batch.jointPalette.end(), batch.jointsScratch.begin(), batch.jointsScratch.end());
+                    if (pose.jointCount == batch.jointCount && pose.jointPalette.size() == static_cast<size_t>(batch.jointCount))
+                        batch.jointPalette.insert(batch.jointPalette.end(), pose.jointPalette.begin(), pose.jointPalette.end());
+                    else
+                        batch.jointPalette.insert(batch.jointPalette.end(), batch.jointCount, glm::mat4(1.0f));
                 }
 
                 (void)asset;
@@ -230,4 +201,5 @@ private:
     Engine::Camera *m_camera = nullptr;       // not owned
 
     std::unordered_map<uint64_t, std::shared_ptr<Engine::SModelRenderPassModule>> m_passes;
+    Engine::ECS::QueryId m_queryId = Engine::ECS::QueryManager::InvalidQuery;
 };

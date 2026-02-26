@@ -142,8 +142,11 @@ MySampleApp::MySampleApp() : Engine::Application()
 
     setupECSFromPrefabs();
 
+    // Enable incremental query updates when new stores are created.
+    GetECS().WireQueryManager();
+
     // Systems can be initialized after prefabs are registered.
-    m_systems.Initialize(GetECS().components);
+    m_systems.Initialize(GetECS());
 
     // Hook engine window events into our handler.
     SetEventCallback([this](const std::string &e)
@@ -283,26 +286,24 @@ void MySampleApp::PickAndSelectEntityAtCursor()
     Engine::ECS::ArchetypeStore *bestStore = nullptr;
     uint32_t bestRow = 0;
 
-    for (const auto &ptr : ecs.stores.stores())
+    static Engine::ECS::QueryId pickQueryId = Engine::ECS::QueryManager::InvalidQuery;
+    if (pickQueryId == Engine::ECS::QueryManager::InvalidQuery)
+        pickQueryId = ecs.queries.createQuery(required, excluded, ecs.stores);
+
+    const auto &q = ecs.queries.get(pickQueryId);
+    for (uint32_t archetypeId : q.matchingArchetypeIds)
     {
-        if (!ptr)
+        Engine::ECS::ArchetypeStore *storePtr = ecs.stores.get(archetypeId);
+        if (!storePtr)
             continue;
-        auto &store = *ptr;
-        if (!store.signature().containsAll(required))
-            continue;
-        if (!store.signature().containsNone(excluded))
-            continue;
+        auto &store = *storePtr;
         if (!store.hasPosition() || !store.hasRenderModel() || !store.hasRenderAnimation())
             continue;
 
-        const auto &masks = store.rowMasks();
         const auto &positions = store.positions();
         const uint32_t n = store.size();
         for (uint32_t row = 0; row < n; ++row)
         {
-            if (!masks[row].matches(required, excluded))
-                continue;
-
             const auto &p = positions[row];
             const glm::vec4 world(p.x, p.y, p.z, 1.0f);
             const glm::vec4 clip = vp * world;
@@ -338,19 +339,9 @@ void MySampleApp::PickAndSelectEntityAtCursor()
     if (bestStore)
     {
         // Clicked on an entity - select it
-        // Clear existing selection and select only this entity.
-        for (const auto &ptr : ecs.stores.stores())
-        {
-            if (!ptr)
-                continue;
-            auto &store = *ptr;
-            auto &masks = store.rowMasks();
-            for (auto &mask : masks)
-                mask.clear(selectedId);
-        }
-
-        // Apply selection
-        bestStore->rowMasks()[bestRow].set(selectedId);
+        // Selection is now a tag-like component in the archetype signature (no row masks).
+        const Engine::ECS::Entity picked = bestStore->entities()[bestRow];
+        ecs.setTagExclusive(picked, selectedId);
     }
     else
     {
@@ -390,16 +381,10 @@ void MySampleApp::PickAndSelectEntityAtCursor()
                 // Send move command to selected units
                 m_systems.SetGlobalMoveTarget(hitPoint.x, 0.0f, hitPoint.z);
 
-                std::cout << "[Move] Ground click at (" << hitPoint.x << ", " << hitPoint.z << ")\n";
+                (void)hitPoint;
             }
         }
     }
-
-    // // Apply selection and start animation.
-    // bestStore->rowMasks()[bestRow].set(selectedId);
-    // auto &anim = bestStore->renderAnimations()[bestRow];
-    // anim.playing = true;
-    // anim.timeSec = 0.0f;
 }
 
 void MySampleApp::ApplyRTSCamera(float aspect)

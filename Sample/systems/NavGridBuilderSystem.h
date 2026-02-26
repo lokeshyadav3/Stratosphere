@@ -24,7 +24,7 @@ public:
     const char *name() const override { return "NavGridBuilderSystem"; }
 
     // Call this if obstacles change, or just check a dirty flag
-    void update(Engine::ECS::ArchetypeStoreManager &mgr, float dt) override
+    void update(Engine::ECS::ECSContext &ecs, float dt) override
     {
         if (!m_grid)
             return;
@@ -32,7 +32,7 @@ public:
         // Reset grid: mark all as walkable
         std::fill(m_grid->blocked.begin(), m_grid->blocked.end(), 0);
 
-        for (const auto &ptr : mgr.stores())
+        for (const auto &ptr : ecs.stores.stores())
         {
             if (!ptr)
                 continue;
@@ -45,16 +45,12 @@ public:
 
             auto &positions = store.positions();
             auto &radii = store.obstacleRadii();
-            const auto &masks = store.rowMasks();
             const uint32_t n = store.size();
 
             for (uint32_t i = 0; i < n; ++i)
             {
-                if (!masks[i].matches(required(), excluded()))
-                    continue;
-
-                // Aggressively inflate (+3.5m) to force broad wall on coarse grid
-                m_grid->markObstacle(positions[i].x, positions[i].z, radii[i].r + 3.5f);
+                // Inflate by 1.0m beyond physical radius for safe clearance on 2m grid
+                m_grid->markObstacle(positions[i].x, positions[i].z, radii[i].r + 1.0f);
             }
         }
     }

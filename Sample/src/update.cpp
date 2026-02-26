@@ -2,10 +2,15 @@
 
 namespace Sample
 {
-    void SystemRunner::Initialize(Engine::ECS::ComponentRegistry &registry)
+    void SystemRunner::Initialize(Engine::ECS::ECSContext &ecs)
     {
         if (m_initialized)
             return;
+
+        // Ensure queries get incrementally updated as new stores appear.
+        ecs.WireQueryManager();
+
+        auto &registry = ecs.components;
 
         // Ensure common IDs exist up-front (also used by scenario spawner selection).
         (void)registry.ensureId("Selected");
@@ -16,6 +21,7 @@ namespace Sample
         m_pathfinding.buildMasks(registry);
         m_movement.buildMasks(registry);
         m_characterAnim.buildMasks(registry);
+        m_poseUpdate.buildMasks(registry);
         m_renderModel.buildMasks(registry);
 
         // Initialize NavGrid (cover map area)
@@ -27,37 +33,40 @@ namespace Sample
     void SystemRunner::Update(Engine::ECS::ECSContext &ecs, float dtSeconds)
     {
         if (!m_initialized)
-            Initialize(ecs.components);
+            Initialize(ecs);
 
         if (dtSeconds <= 0.0f)
             return;
 
         // 1. Input
-        m_command.update(ecs.stores, dtSeconds);
+        m_command.update(ecs, dtSeconds);
 
         // 2. NavGrid (Rebuild grid from static obstacles)
-        // Optimization: Could check dirty flag, but for now run every frame
-        m_navGridBuilder.update(ecs.stores, dtSeconds);
+        m_navGridBuilder.update(ecs, dtSeconds);
 
         // 3. Pathfinding (Plan paths for units with invalid/new targets)
-        m_pathfinding.update(ecs.stores, dtSeconds);
+        m_pathfinding.update(ecs, dtSeconds);
 
         // 4. Steering (Follow waypoints, update facing)
-        m_steering.update(ecs.stores, dtSeconds);
+        m_steering.update(ecs, dtSeconds);
 
         // 5. Movement integration
-        m_movement.update(ecs.stores, dtSeconds);
+        m_movement.update(ecs, dtSeconds);
         
         // 6. Animation selection
-        m_characterAnim.update(ecs.stores, dtSeconds);
+        m_characterAnim.update(ecs, dtSeconds);
+
+        // 7. Pose update
+        m_poseUpdate.update(ecs, dtSeconds);
         
-        // 7. Render
-        m_renderModel.update(ecs.stores, dtSeconds);
+        // 8. Render
+        m_renderModel.update(ecs, dtSeconds);
     }
 
     void SystemRunner::SetAssetManager(Engine::AssetManager *assets)
     {
         m_characterAnim.setAssetManager(assets);
+        m_poseUpdate.setAssetManager(assets);
         m_renderModel.setAssetManager(assets);
     }
 

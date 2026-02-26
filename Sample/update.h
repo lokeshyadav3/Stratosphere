@@ -9,6 +9,7 @@
 #include "systems/PathfindingSystem.h"
 #include "systems/MovementSystem.h"
 #include "systems/CharacterAnimationSystem.h"
+#include "systems/PoseUpdateSystem.h"
 #include "systems/RenderSystem.h"
 
 namespace Engine
@@ -24,7 +25,7 @@ namespace Sample
     class SystemRunner
     {
     public:
-        void Initialize(Engine::ECS::ComponentRegistry &registry);
+        void Initialize(Engine::ECS::ECSContext &ecs);
         void Update(Engine::ECS::ECSContext &ecs, float dtSeconds);
 
         void SetAssetManager(Engine::AssetManager *assets);
@@ -44,6 +45,8 @@ namespace Sample
         PathfindingSystem m_pathfinding{&m_navGrid};
 
         CharacterAnimationSystem m_characterAnim;
+
+        PoseUpdateSystem m_poseUpdate;
 
         RenderSystem m_renderModel;
     };

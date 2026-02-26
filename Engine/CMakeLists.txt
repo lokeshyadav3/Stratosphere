@@ -71,8 +71,6 @@ add_library(Engine STATIC
     src/GLFWWindow.cpp
     src/SwapChain.cpp
     src/Renderer.cpp
-    src/TrianglesRenderPassModule.cpp
-    src/MeshRenderPassModule.cpp
     src/GroundPlaneRenderPassModule.cpp
     src/Pipeline.cpp
     src/BufferUtils.cpp

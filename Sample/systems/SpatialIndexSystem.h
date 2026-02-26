@@ -76,50 +76,37 @@ public:
     float getCellSize() const { return m_cellSize; }
 
     // Rebuild the spatial hash grid for all entities with Position
-    void update(Engine::ECS::ArchetypeStoreManager &mgr, float /*dt*/) override
+    void update(Engine::ECS::ECSContext &ecs, float /*dt*/) override
     {
         // Clear grid but keep capacity to minimize allocations
         for (auto &kv : m_grid)
             kv.second.entries.clear();
         // Optional: if entity count changes wildly, you can occasionally m_grid.clear()
 
-        // Iterate stores with Position
-        uint32_t sid = 0;
-        for (const auto &ptr : mgr.stores())
-        {
-            if (!ptr)
-            {
-                ++sid;
-                continue;
-            }
-            const auto &store = *ptr;
+        if (m_queryId == Engine::ECS::QueryManager::InvalidQuery)
+            m_queryId = ecs.queries.createQuery(required(), excluded(), ecs.stores);
 
-            if (!store.signature().containsAll(required()))
-            {
-                ++sid;
+        const auto &q = ecs.queries.get(m_queryId);
+        for (uint32_t archetypeId : q.matchingArchetypeIds)
+        {
+            const Engine::ECS::ArchetypeStore *storePtr = ecs.stores.get(archetypeId);
+            if (!storePtr)
                 continue;
-            }
-            if (!store.signature().containsNone(excluded()))
-            {
-                ++sid;
+            const auto &store = *storePtr;
+            if (!store.hasPosition())
                 continue;
-            }
 
             const auto &positions = store.positions();
             const uint32_t n = store.size();
-
-            // Reserve a bit for typical occupancy of cells if you know it; otherwise skip.
             for (uint32_t row = 0; row < n; ++row)
             {
                 const auto &p = positions[row];
                 const int gx = static_cast<int>(std::floor(p.x / m_cellSize));
                 const int gz = static_cast<int>(std::floor(p.z / m_cellSize));
                 GridKey key{gx, gz};
-                auto &cell = m_grid[key]; // creates if missing
-                cell.entries.push_back(GridEntry{sid, row});
+                auto &cell = m_grid[key];
+                cell.entries.push_back(GridEntry{archetypeId, row});
             }
-
-            ++sid;
         }
     }
 
@@ -150,4 +137,5 @@ public:
 private:
     float m_cellSize; // equals neighbor radius R
     std::unordered_map<GridKey, GridCell, GridKeyHash> m_grid;
+    Engine::ECS::QueryId m_queryId = Engine::ECS::QueryManager::InvalidQuery;
 };

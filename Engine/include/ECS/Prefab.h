@@ -152,9 +152,9 @@ namespace Engine::ECS
                         p.signature.set(raId);
 
                         RenderAnimation ra{};
-                        ra.clipIndex = 65;    // Stand_Idle_0 animation
-                        ra.playing = true;    // Start playing immediately
-                        ra.loop = true;       // Loop the animation
+                        ra.clipIndex = 65; // Stand_Idle_0 animation
+                        ra.playing = true; // Start playing immediately
+                        ra.loop = true;    // Loop the animation
                         ra.speed = 1.0f;
                         ra.timeSec = 0.0f;
                         p.defaults[raId] = ra;
@@ -164,6 +164,19 @@ namespace Engine::ECS
                         std::cerr << "[Prefab] Warning: Failed to load model mesh: " << modelPath << " for prefab " << p.name << "\n";
                     }
                 }
+            }
+        }
+
+        // If an entity can be rendered, ensure it also has a PosePalette so rendering can reuse cached transforms.
+        // (RenderSystem currently requires PosePalette.)
+        {
+            const uint32_t rmId = registry.ensureId("RenderModel");
+            if (p.signature.has(rmId))
+            {
+                const uint32_t ppId = registry.ensureId("PosePalette");
+                p.signature.set(ppId);
+                if (p.defaults.find(ppId) == p.defaults.end())
+                    p.defaults.emplace(ppId, PosePalette{});
             }
         }
 
