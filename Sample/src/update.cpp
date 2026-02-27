@@ -20,6 +20,9 @@ namespace Sample
         m_navGridBuilder.buildMasks(registry);
         m_pathfinding.buildMasks(registry);
         m_movement.buildMasks(registry);
+        m_spatialIndex.buildMasks(registry);
+        m_combat.buildMasks(registry);
+        m_combat.setSpatialIndex(&m_spatialIndex);
         m_characterAnim.buildMasks(registry);
         m_poseUpdate.buildMasks(registry);
         m_renderModel.buildMasks(registry);
@@ -52,6 +55,12 @@ namespace Sample
 
         // 5. Movement integration
         m_movement.update(ecs, dtSeconds);
+
+        // 5.5 Spatial index rebuild
+        m_spatialIndex.update(ecs, dtSeconds);
+
+        // 5.6 Combat (find enemies, attack, damage, death)
+        m_combat.update(ecs, dtSeconds);
         
         // 6. Animation selection
         m_characterAnim.update(ecs, dtSeconds);
@@ -68,6 +77,7 @@ namespace Sample
         m_characterAnim.setAssetManager(assets);
         m_poseUpdate.setAssetManager(assets);
         m_renderModel.setAssetManager(assets);
+        m_combat.setAssetManager(assets);
     }
 
     void SystemRunner::SetRenderer(Engine::Renderer *renderer)

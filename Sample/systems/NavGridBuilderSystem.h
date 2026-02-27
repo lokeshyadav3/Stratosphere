@@ -53,8 +53,8 @@ public:
 
             for (uint32_t i = 0; i < n; ++i)
             {
-                // Inflate by 1.0m beyond physical radius for safe clearance on 2m grid
-                m_grid->markObstacle(positions[i].x, positions[i].z, radii[i].r + 1.0f);
+                // Inflate by 2.5m beyond physical radius so knights don't clip stumps on 2m grid
+                m_grid->markObstacle(positions[i].x, positions[i].z, radii[i].r + 2.5f);
             }
         }
 

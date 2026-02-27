@@ -79,6 +79,8 @@ namespace
         sg.jitterM = 0.0f;
         sg.spacingAuto = true;
         sg.spacingM = 0.0f;
+        sg.team = g.value("team", -1);
+        sg.facingYawDeg = g.value("facingYawDeg", 0.0f);
 
         if (g.contains("formation") && g["formation"].is_object())
         {
@@ -318,6 +320,19 @@ namespace Sample
                 p.x = x;
                 p.y = 0.0f;
                 p.z = z;
+
+                // Set team if specified
+                if (sg.team >= 0 && store->hasTeam())
+                {
+                    store->teams()[res.row].id = static_cast<uint8_t>(sg.team);
+                }
+
+                // Set initial facing
+                if (store->hasFacing() && std::abs(sg.facingYawDeg) > 1e-3f)
+                {
+                    const float PI = 3.14159265358979f;
+                    store->facings()[res.row].yaw = sg.facingYawDeg * PI / 180.0f;
+                }
 
                 if (selectSpawned)
                 {

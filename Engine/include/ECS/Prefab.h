@@ -332,6 +332,33 @@ namespace Engine::ECS
              }
         }
 
+        // Parse defaults: Team
+        {
+            std::regex re_team(R"("Team"\s*:\s*\{\s*"id"\s*:\s*(\d+)\s*\})");
+            std::smatch m;
+            if (std::regex_search(jsonText, m, re_team))
+            {
+                Team t{};
+                t.id = static_cast<uint8_t>(std::stoi(m[1].str()));
+                uint32_t cid = registry.ensureId("Team");
+                p.defaults.emplace(cid, t);
+            }
+        }
+
+        // Parse defaults: AttackCooldown
+        {
+            std::regex re_ack(R"("AttackCooldown"\s*:\s*\{\s*"timer"\s*:\s*([-+]?\d*\.?\d+),\s*"interval"\s*:\s*([-+]?\d*\.?\d+)\s*\})");
+            std::smatch m;
+            if (std::regex_search(jsonText, m, re_ack))
+            {
+                AttackCooldown ac{};
+                ac.timer = std::stof(m[1].str());
+                ac.interval = std::stof(m[2].str());
+                uint32_t cid = registry.ensureId("AttackCooldown");
+                p.defaults.emplace(cid, ac);
+            }
+        }
+
         // Validate defaults align with signature; drop mismatches to keep consistency.
         if (!p.validateDefaults())
         {

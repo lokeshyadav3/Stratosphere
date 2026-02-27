@@ -36,12 +36,12 @@ public:
             m_queryId = ecs.queries.createDirtyQuery(required(), excluded(), dirty, ecs.stores);
         }
 
-        auto len2 = [](float x, float z)
-        { return std::sqrt(x * x + z * z); };
+        auto dist2 = [](float x, float z)
+        { return x * x + z * z; };
 
         // Gameplay uses meters; stop once we're within a small radius.
-        const float arrivalRadius = 0.5f;
-        const float waypointRadius = 0.25f; // Tighter acceptance for precise cornering
+        const float arrivalRadius2 = 0.25f;   // 0.5^2
+        const float waypointRadius2 = 0.0625f; // 0.25^2
 
         const auto &q = ecs.queries.get(m_queryId);
         for (uint32_t archetypeId : q.matchingArchetypeIds)
@@ -97,12 +97,12 @@ public:
 
                 float dx = tx - pos.x;
                 float dz = tz - pos.z;
-                float dist = len2(dx, dz);
+                float d2 = dist2(dx, dz);
 
-                // Check arrival
-                float radiusToCheck = isFinal ? arrivalRadius : waypointRadius;
+                // Check arrival (squared distance)
+                float radiusToCheck2 = isFinal ? arrivalRadius2 : waypointRadius2;
 
-                if (dist <= radiusToCheck)
+                if (d2 <= radiusToCheck2)
                 {
                     if (isFinal)
                     {
@@ -121,7 +121,7 @@ public:
                             tz = path.waypointsZ[path.current];
                             dx = tx - pos.x;
                             dz = tz - pos.z;
-                            dist = len2(dx, dz);
+                            d2 = dist2(dx, dz);
                         }
                         else
                         {
@@ -131,7 +131,7 @@ public:
                             tz = tgt.z;
                             dx = tx - pos.x;
                             dz = tz - pos.z;
-                            dist = len2(dx, dz);
+                            d2 = dist2(dx, dz);
                         }
                     }
 
@@ -145,8 +145,9 @@ public:
                 }
 
                 // Steer toward target
-                if (dist > 1e-4f)
+                if (d2 > 1e-8f)
                 {
+                    float dist = std::sqrt(d2);
                     float invDist = 1.0f / dist;
                     dx *= invDist;
                     dz *= invDist;

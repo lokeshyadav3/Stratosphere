@@ -123,6 +123,31 @@ public:
                 // Select appropriate animation clip
                 uint32_t desiredClip = isMoving ? AnimClips::RUN : AnimClips::IDLE;
 
+                // Don't override one-shot combat animations (attack/damage) while they're playing.
+                // Let them finish before returning to idle/run.
+                if (!anim.loop && anim.playing)
+                {
+                    const float duration = asset->animClips[anim.clipIndex].durationSec;
+                    if (anim.timeSec < duration)
+                    {
+                        // Still playing a one-shot anim — just advance time and skip clip change
+                        const float delta = dt * anim.speed;
+                        if (std::abs(delta) > 1e-9f)
+                        {
+                            anim.timeSec += delta;
+                            ecs.markDirty(m_renderAnimId, archetypeId, row);
+                        }
+                        if (anim.timeSec >= duration)
+                        {
+                            // One-shot finished — fall through to normal clip selection next frame
+                            anim.timeSec = duration;
+                            anim.playing = false;
+                            ecs.markDirty(m_renderAnimId, archetypeId, row);
+                        }
+                        continue;
+                    }
+                }
+
                 // Clamp to valid range
                 const uint32_t maxClip = static_cast<uint32_t>(asset->animClips.size() - 1);
                 desiredClip = std::min(desiredClip, maxClip);

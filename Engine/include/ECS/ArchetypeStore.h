@@ -66,6 +66,10 @@ namespace Engine::ECS
                 m_paths.emplace_back(Path{});
             if (hasPosePalette())
                 m_posePalettes.emplace_back(PosePalette{});
+            if (hasTeam())
+                m_teams.emplace_back(Team{});
+            if (hasAttackCooldown())
+                m_attackCooldowns.emplace_back(AttackCooldown{});
 
             return row;
         }
@@ -121,6 +125,10 @@ namespace Engine::ECS
                 swapErase(m_paths);
             if (hasPosePalette())
                 swapErase(m_posePalettes);
+            if (hasTeam())
+                swapErase(m_teams);
+            if (hasAttackCooldown())
+                swapErase(m_attackCooldowns);
 
             return moved;
         }
@@ -197,6 +205,14 @@ namespace Engine::ECS
                 {
                     m_posePalettes[row] = std::get<PosePalette>(kv.second);
                 }
+                else if (std::holds_alternative<Team>(kv.second) && hasTeam())
+                {
+                    m_teams[row] = std::get<Team>(kv.second);
+                }
+                else if (std::holds_alternative<AttackCooldown>(kv.second) && hasAttackCooldown())
+                {
+                    m_attackCooldowns[row] = std::get<AttackCooldown>(kv.second);
+                }
             }
         }
 
@@ -248,6 +264,12 @@ namespace Engine::ECS
         std::vector<PosePalette> &posePalettes() { return m_posePalettes; }
         const std::vector<PosePalette> &posePalettes() const { return m_posePalettes; }
 
+        std::vector<Team> &teams() { return m_teams; }
+        const std::vector<Team> &teams() const { return m_teams; }
+
+        std::vector<AttackCooldown> &attackCooldowns() { return m_attackCooldowns; }
+        const std::vector<AttackCooldown> &attackCooldowns() const { return m_attackCooldowns; }
+
         // Helpers
         bool hasPosition() const { return m_hasPosition; }
         bool hasVelocity() const { return m_hasVelocity; }
@@ -264,6 +286,8 @@ namespace Engine::ECS
         bool hasObstacleRadius() const { return m_hasObstacleRadius; }
         bool hasPath() const { return m_hasPath; }
         bool hasPosePalette() const { return m_hasPosePalette; }
+        bool hasTeam() const { return m_hasTeam; }
+        bool hasAttackCooldown() const { return m_hasAttackCooldown; }
 
         // Resolve which known components are present in signature; enables arrays accordingly.
         void resolveKnownComponents(ComponentRegistry &registry)
@@ -298,6 +322,11 @@ namespace Engine::ECS
             m_hasObstacleRadius = m_signature.has(obsRId);
             m_hasPath = m_signature.has(pathId);
             m_hasPosePalette = m_signature.has(ppId);
+
+            const uint32_t teamId = registry.ensureId("Team");
+            const uint32_t ackId = registry.ensureId("AttackCooldown");
+            m_hasTeam = m_signature.has(teamId);
+            m_hasAttackCooldown = m_signature.has(ackId);
         }
 
     private:
@@ -319,6 +348,8 @@ namespace Engine::ECS
         std::vector<ObstacleRadius> m_obstacleRadii;
         std::vector<Path> m_paths;
         std::vector<PosePalette> m_posePalettes;
+        std::vector<Team> m_teams;
+        std::vector<AttackCooldown> m_attackCooldowns;
 
         // Flags indicating which arrays are active.
         bool m_hasPosition = false;
@@ -336,6 +367,8 @@ namespace Engine::ECS
         bool m_hasObstacleRadius = false;
         bool m_hasPath = false;
         bool m_hasPosePalette = false;
+        bool m_hasTeam = false;
+        bool m_hasAttackCooldown = false;
     };
 
     class ArchetypeStoreManager

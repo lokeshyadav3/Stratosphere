@@ -11,6 +11,8 @@
 #include "systems/CharacterAnimationSystem.h"
 #include "systems/PoseUpdateSystem.h"
 #include "systems/RenderSystem.h"
+#include "systems/SpatialIndexSystem.h"
+#include "systems/CombatSystem.h"
 
 namespace Engine
 {
@@ -33,6 +35,11 @@ namespace Sample
         void SetCamera(Engine::Camera *camera);
         void SetGlobalMoveTarget(float x, float y, float z);
 
+        /// Access combat system for HUD stats
+        const CombatSystem &GetCombatSystem() const { return m_combat; }
+        /// Mutable access for config loading
+        CombatSystem &GetCombatSystemMut() { return m_combat; }
+
     private:
         bool m_initialized = false;
 
@@ -43,6 +50,9 @@ namespace Sample
         NavGrid m_navGrid;
         NavGridBuilderSystem m_navGridBuilder{&m_navGrid};
         PathfindingSystem m_pathfinding{&m_navGrid};
+
+        SpatialIndexSystem m_spatialIndex{2.0f};
+        CombatSystem m_combat;
 
         CharacterAnimationSystem m_characterAnim;
 

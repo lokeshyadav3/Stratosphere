@@ -157,8 +157,25 @@ namespace Engine::ECS
         uint32_t jointCount = 0;
     };
 
+    // -----------------------
+    // Combat Components
+    // -----------------------
+
+    // Which team/faction the entity belongs to (0 = Team A, 1 = Team B, etc.)
+    struct Team
+    {
+        uint8_t id = 0;
+    };
+
+    // Melee attack cooldown timer.
+    struct AttackCooldown
+    {
+        float timer = 0.0f;      // current countdown (seconds)
+        float interval = 1.5f;   // time between attacks (seconds)
+    };
+
     // Typed defaults per component ID (used by Prefabs/Stores).
-    using DefaultValue = std::variant<Position, Velocity, Health, MoveTarget, MoveSpeed, Radius, Separation, AvoidanceParams, RenderModel, RenderAnimation, Facing, ObstacleRadius, Path, PosePalette>;
+    using DefaultValue = std::variant<Position, Velocity, Health, MoveTarget, MoveSpeed, Radius, Separation, AvoidanceParams, RenderModel, RenderAnimation, Facing, ObstacleRadius, Path, PosePalette, Team, AttackCooldown>;
     // -----------------------
     // Component Registry
     // -----------------------
