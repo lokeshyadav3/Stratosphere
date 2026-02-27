@@ -84,6 +84,12 @@ private:
     // Small save slot filename
     std::string m_saveFilePath = "sample_save.json";
 
+    // Start zone: click here to start the battle
+    float m_startZoneX = 0.0f;
+    float m_startZoneZ = 0.0f;
+    float m_startZoneRadius = 10.0f;
+    bool  m_hasStartZone = false;
+
     // Helpers
     void SaveGameState();
     void LoadGameState();

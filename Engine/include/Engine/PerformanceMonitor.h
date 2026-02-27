@@ -5,6 +5,11 @@
 #include <cstdint>
 #include <string>
 
+// Forward-declare DXGI adapter so we don't pull <dxgi1_4.h> into the header
+#ifdef _WIN32
+struct IDXGIAdapter3;
+#endif
+
 namespace Engine
 {
     class Window;
@@ -14,8 +19,8 @@ namespace Engine
     /**
      * @brief Performance monitoring system that tracks and displays real-time metrics.
      * 
-     * Collects FPS, frame times, draw calls, and system information.
-     * Renders an ImGui-based overlay when enabled.
+     * Collects FPS, frame times, draw calls, VRAM, CPU usage.
+     * Renders an ImGui-based overlay when enabled (F1 to toggle).
      */
     class PerformanceMonitor
     {
@@ -87,6 +92,11 @@ namespace Engine
         float get01PercentLowFPS() const { return m_01percentLowFPS; }
         float getFrameTimeMs() const { return m_frameTimeMs; }
         float getCPUTimeMs() const { return m_cpuTimeMs; }
+        float getVramUsedMB() const { return m_vramUsedMB; }
+        float getVramTotalMB() const { return m_vramTotalMB; }
+        float getCpuUsagePercent() const { return m_cpuUsagePercent; }
+        float getRamUsedMB() const { return m_ramUsedMB; }
+        const std::string& getGpuName() const { return m_gpuName; }
         uint32_t getDrawCallCount() const { return m_drawCallCount; }
         uint32_t getResolutionWidth() const;
         uint32_t getResolutionHeight() const;
@@ -94,6 +104,8 @@ namespace Engine
     private:
         void updateMetrics();
         void calculatePercentileFPS();
+        void querySystemInfo();       // One-time GPU name, total VRAM, DXGI init
+        void updateSystemMetrics();   // Per-frame VRAM used, CPU %, RAM
 
     private:
         // References to engine systems
@@ -125,10 +137,21 @@ namespace Engine
         float m_gpuTimeMs = 0.0f;  // Placeholder - requires GPU timestamp queries
         float m_gpuUsagePercent = 0.0f; // Placeholder - requires vendor-specific queries
 
+        // GPU / VRAM info
+        std::string m_gpuName;
+        float m_vramTotalMB = 0.0f;     // Total device-local VRAM (MB)
+        float m_vramUsedMB  = 0.0f;     // Currently used VRAM (MB) - via DXGI
+
+        // CPU / RAM usage
+        float m_cpuUsagePercent = 0.0f;  // System-wide CPU usage %
+        float m_ramUsedMB = 0.0f;        // Process working set (MB)
+
         // Smoothed display values (EMA filtered for readability)
         float m_smoothedFrameTimeMs = 0.0f;
         float m_smoothedCpuTimeMs = 0.0f;
         float m_smoothedGpuTimeMs = 0.0f;
+        float m_smoothedVramUsedMB = 0.0f;
+        float m_smoothedCpuUsagePercent = 0.0f;
 
         // EMA smoothing factor: 0.1 = very smooth (slow response), 0.3 = moderate, 0.5 = responsive
         static constexpr float EMA_SMOOTHING_FACTOR = 0.15f;
@@ -141,6 +164,20 @@ namespace Engine
         // Metrics update interval
         float m_updateTimer = 0.0f;
         static constexpr float UPDATE_INTERVAL = 0.1f; // Update every 100ms
+
+        // System metrics update (slower, 500ms)
+        float m_sysUpdateTimer = 0.0f;
+        static constexpr float SYS_UPDATE_INTERVAL = 0.5f;
+
+#ifdef _WIN32
+        // DXGI adapter for VRAM queries
+        IDXGIAdapter3* m_dxgiAdapter = nullptr;
+
+        // CPU usage tracking (GetSystemTimes delta)
+        uint64_t m_prevIdleTime   = 0;
+        uint64_t m_prevKernelTime = 0;
+        uint64_t m_prevUserTime   = 0;
+#endif
     };
 
     /**

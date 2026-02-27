@@ -23,6 +23,7 @@
 #include <sstream>
 
 #include <cmath>
+#include <algorithm>
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -77,13 +78,13 @@ MySampleApp::MySampleApp() : Engine::Application()
         ImTextureID tcont = loader("assets/raw/continuegame.png");
         ImTextureID texit = loader("assets/raw/exit.png");
     }
-    // RTS camera initialization (classic defaults).
+    // RTS camera initialization — raised for the larger maze map.
     m_rtsCam.focus = {0.0f, 0.0f, 0.0f};
     m_rtsCam.yawDeg = -45.0f;
     m_rtsCam.pitchDeg = -55.0f;
-    m_rtsCam.height = 70.0f;
+    m_rtsCam.height = 120.0f;
     m_rtsCam.minHeight = 5.0f;
-    m_rtsCam.maxHeight = 100.0f;
+    m_rtsCam.maxHeight = 250.0f;
 
     auto &win = GetWindow();
     const float aspect = static_cast<float>(win.GetWidth()) / static_cast<float>(win.GetHeight());
@@ -390,7 +391,7 @@ void MySampleApp::PickAndSelectEntityAtCursor()
 void MySampleApp::ApplyRTSCamera(float aspect)
 {
     // Projection stays perspective; keep it synced with window aspect.
-    m_camera.SetPerspective(glm::radians(60.0f), aspect, 0.1f, 200.0f);
+    m_camera.SetPerspective(glm::radians(60.0f), aspect, 0.1f, 600.0f);
 
     // Direction from yaw/pitch.
     glm::vec3 forward;
@@ -441,6 +442,107 @@ void MySampleApp::OnRender()
         // or multiply your fragment shader output by alpha
     }
     m_menu.OnImGuiFrame();
+
+    // ---- Battle HUD: Team health bars ----
+    if (m_inGame && !m_menu.IsVisible())
+    {
+        const auto &combat = m_systems.GetCombatSystem();
+        const auto &teamA = combat.getTeamStats(0);
+        const auto &teamB = combat.getTeamStats(1);
+
+        ImGuiIO &io = ImGui::GetIO();
+        const float screenW = io.DisplaySize.x;
+
+        // Bar dimensions
+        const float barW = 280.0f;
+        const float barH = 28.0f;
+        const float padding = 20.0f;
+        const float topY = 16.0f;
+
+        // Transparent overlay window covering full screen
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::SetNextWindowSize(io.DisplaySize);
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        ImGui::Begin("##BattleHUD", nullptr,
+            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+            ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoBackground |
+            ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoFocusOnAppearing);
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor();
+
+        ImDrawList *draw = ImGui::GetWindowDrawList();
+
+        // Helper lambda: draw a labeled health bar
+        auto drawTeamBar = [&](float x, float y, const CombatSystem::TeamStats &stats,
+                               const char *label, ImU32 fillColor, ImU32 bgColor)
+        {
+            float fraction = (stats.maxHP > 0.0f)
+                ? std::clamp(stats.currentHP / stats.maxHP, 0.0f, 1.0f) : 0.0f;
+
+            // Background (dark)
+            draw->AddRectFilled(ImVec2(x, y), ImVec2(x + barW, y + barH), bgColor, 4.0f);
+            // Fill
+            draw->AddRectFilled(ImVec2(x, y), ImVec2(x + barW * fraction, y + barH), fillColor, 4.0f);
+            // Border
+            draw->AddRect(ImVec2(x, y), ImVec2(x + barW, y + barH),
+                          IM_COL32(200, 200, 200, 200), 4.0f, 0, 1.5f);
+
+            // Text: "Team A   5/10   350/1400"
+            char buf[128];
+            snprintf(buf, sizeof(buf), "%s   %d/%d   %.0f/%.0f",
+                     label, stats.alive, stats.totalSpawned,
+                     std::max(0.0f, stats.currentHP), stats.maxHP);
+
+            ImVec2 textSize = ImGui::CalcTextSize(buf);
+            float tx = x + (barW - textSize.x) * 0.5f;
+            float ty = y + (barH - textSize.y) * 0.5f;
+            // Shadow
+            draw->AddText(ImVec2(tx + 1, ty + 1), IM_COL32(0, 0, 0, 200), buf);
+            // Foreground
+            draw->AddText(ImVec2(tx, ty), IM_COL32(255, 255, 255, 240), buf);
+        };
+
+        // Team A — top-left (blue) — PLAYER
+        drawTeamBar(padding, topY, teamA, "YOU (A)",
+                    IM_COL32(50, 120, 220, 220), IM_COL32(20, 40, 80, 180));
+
+        // Team B — top-right (red) — AI
+        drawTeamBar(screenW - barW - padding, topY, teamB, "Enemy (B)",
+                    IM_COL32(200, 50, 50, 220), IM_COL32(80, 20, 20, 180));
+
+        // --- Hint text ---
+        {
+            const char *hint = nullptr;
+            ImU32 hintColor = IM_COL32(200, 200, 200, 180);
+
+            if (!combat.isBattleStarted())
+            {
+                hint = "Click anywhere to start — armies will charge toward each other!";
+                hintColor = IM_COL32(100, 255, 100, 240);
+            }
+            else if (combat.isHumanAttacking())
+            {
+                hint = "[ SPACE ] ATTACKING!";
+                hintColor = IM_COL32(255, 200, 50, 255);
+            }
+            else
+            {
+                hint = "Hold [ SPACE ] to Attack";
+                hintColor = IM_COL32(200, 200, 200, 180);
+            }
+
+            ImVec2 hintSize = ImGui::CalcTextSize(hint);
+            float hx = (screenW - hintSize.x) * 0.5f;
+            float hy = topY + barH + 12.0f;
+            draw->AddText(ImVec2(hx + 1, hy + 1), IM_COL32(0, 0, 0, 180), hint);
+            draw->AddText(ImVec2(hx, hy), hintColor, hint);
+        }
+
+        ImGui::End();
+    }
 
     // If menu produced a result, handle it
     if (m_menu.GetResult() != MenuManager::Result::None)
@@ -527,7 +629,59 @@ void MySampleApp::setupECSFromPrefabs()
         return;
     }
 
-    Sample::SpawnFromScenarioFile(ecs, "Scinerio.json", /*selectSpawned=*/true);
+    Sample::SpawnFromScenarioFile(ecs, "BattleConfig.json", /*selectSpawned=*/false);
+
+    // --- Load combat tuning from BattleConfig.json ---
+    try
+    {
+        std::ifstream cfgFile("BattleConfig.json");
+        if (cfgFile.is_open())
+        {
+            nlohmann::json root = nlohmann::json::parse(cfgFile);
+            if (root.contains("combat") && root["combat"].is_object())
+            {
+                const auto &c = root["combat"];
+                CombatSystem::CombatConfig cfg;
+                if (c.contains("meleeRange"))       cfg.meleeRange       = c["meleeRange"].get<float>();
+                if (c.contains("damageMin"))        cfg.damageMin        = c["damageMin"].get<float>();
+                if (c.contains("damageMax"))        cfg.damageMax        = c["damageMax"].get<float>();
+                // Legacy single-value fallback
+                if (c.contains("damagePerHit") && !c.contains("damageMin"))
+                {
+                    float d = c["damagePerHit"].get<float>();
+                    cfg.damageMin = d * 0.6f;
+                    cfg.damageMax = d * 1.4f;
+                }
+                if (c.contains("deathRemoveDelay")) cfg.deathRemoveDelay = c["deathRemoveDelay"].get<float>();
+                if (c.contains("maxHPPerUnit"))     cfg.maxHPPerUnit     = c["maxHPPerUnit"].get<float>();
+                if (c.contains("missChance"))       cfg.missChance       = c["missChance"].get<float>();
+                if (c.contains("critChance"))       cfg.critChance       = c["critChance"].get<float>();
+                if (c.contains("critMultiplier"))   cfg.critMultiplier   = c["critMultiplier"].get<float>();
+                if (c.contains("rageMaxBonus"))     cfg.rageMaxBonus     = c["rageMaxBonus"].get<float>();
+                if (c.contains("cooldownJitter"))   cfg.cooldownJitter   = c["cooldownJitter"].get<float>();
+                if (c.contains("staggerMax"))       cfg.staggerMax       = c["staggerMax"].get<float>();
+                m_systems.GetCombatSystemMut().applyConfig(cfg);
+                m_systems.GetCombatSystemMut().setHumanTeam(0); // Team A = human player
+                std::cout << "[Config] Combat config loaded from BattleConfig.json\n";
+            }
+
+            // Load start zone (click here to begin battle)
+            if (root.contains("startZone") && root["startZone"].is_object())
+            {
+                const auto &sz = root["startZone"];
+                m_startZoneX      = sz.value("x", 0.0f);
+                m_startZoneZ      = sz.value("z", 0.0f);
+                m_startZoneRadius = sz.value("radius", 10.0f);
+                m_hasStartZone    = true;
+                std::cout << "[Config] Start zone at (" << m_startZoneX << "," << m_startZoneZ
+                          << ") r=" << m_startZoneRadius << "\n";
+            }
+        }
+    }
+    catch (const std::exception &e)
+    {
+        std::cerr << "[Config] Failed to parse combat config: " << e.what() << "\n";
+    }
 }
 
 void MySampleApp::OnEvent(const std::string &name)
@@ -545,6 +699,44 @@ void MySampleApp::OnEvent(const std::string &name)
 
     if (evt == "MouseButtonLeftDown")
     {
+        // Before panning, check if battle needs starting — click anywhere on ground
+        if (m_inGame && !m_systems.GetCombatSystem().isBattleStarted())
+        {
+            auto &win = GetWindow();
+            double mx = 0.0, my = 0.0;
+            win.GetCursorPosition(mx, my);
+            const float mouseX = static_cast<float>(mx);
+            const float mouseY = static_cast<float>(my);
+            const float width  = static_cast<float>(win.GetWidth());
+            const float height = static_cast<float>(win.GetHeight());
+
+            const glm::mat4 view = m_camera.GetViewMatrix();
+            const glm::mat4 proj = m_camera.GetProjectionMatrix();
+            const glm::mat4 vpM  = proj * view;
+            const float ndcX = (mouseX / width) * 2.0f - 1.0f;
+            const float ndcY = (mouseY / height) * 2.0f - 1.0f;
+            const glm::mat4 invVP = glm::inverse(vpM);
+            glm::vec4 nw = invVP * glm::vec4(ndcX, ndcY, 0.0f, 1.0f);
+            glm::vec4 fw = invVP * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+            if (std::abs(nw.w) > 1e-6f) nw /= nw.w;
+            if (std::abs(fw.w) > 1e-6f) fw /= fw.w;
+            const glm::vec3 ro(nw);
+            const glm::vec3 rd = glm::normalize(glm::vec3(fw) - glm::vec3(nw));
+            if (std::abs(rd.y) > 1e-6f)
+            {
+                float t = -ro.y / rd.y;
+                if (t > 0.0f)
+                {
+                    glm::vec3 hit = ro + t * rd;
+                    // Click starts the battle — human army pathfinds toward
+                    // the clicked point; AI army charges at human units.
+                    // The engagement point emerges from velocity + pathfinding.
+                    m_systems.GetCombatSystemMut().startBattle(hit.x, hit.z);
+                    return;
+                }
+            }
+        }
+
         m_isPanning = true;
         m_panJustStarted = true;
         auto &win = GetWindow();
@@ -573,6 +765,19 @@ void MySampleApp::OnEvent(const std::string &name)
         iss >> xoff >> yoff;
         (void)xoff;
         m_scrollDelta += static_cast<float>(yoff);
+        return;
+    }
+
+    if (evt == "SpacePressed")
+    {
+        if (m_inGame)
+            m_systems.GetCombatSystemMut().setHumanAttacking(true);
+        return;
+    }
+
+    if (evt == "SpaceReleased")
+    {
+        m_systems.GetCombatSystemMut().setHumanAttacking(false);
         return;
     }
 

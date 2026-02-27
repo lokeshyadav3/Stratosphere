@@ -9,9 +9,28 @@
 #include <atomic>
 #include <cmath>
 
+#ifdef _WIN32
+#define NOMINMAX
+#include <windows.h>
+#include <dxgi1_4.h>
+#include <psapi.h>
+#endif
+
 namespace Engine
 {
+    // -----------------------------------------------------------------------
+    // Helpers (Windows)
+    // -----------------------------------------------------------------------
+#ifdef _WIN32
+    static uint64_t fileTimeToU64(const FILETIME& ft)
+    {
+        return (static_cast<uint64_t>(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+    }
+#endif
+
+    // -----------------------------------------------------------------------
     // Global atomic draw call counter
+    // -----------------------------------------------------------------------
     static std::atomic<uint32_t> g_drawCallCount{0};
 
     void DrawCallCounter::increment(uint32_t count)
@@ -29,6 +48,9 @@ namespace Engine
         return g_drawCallCount.load(std::memory_order_relaxed);
     }
 
+    // -----------------------------------------------------------------------
+    // Ctor / Dtor
+    // -----------------------------------------------------------------------
     PerformanceMonitor::PerformanceMonitor()
         : m_frameStart(Clock::now())
         , m_lastFrameEnd(Clock::now())
@@ -40,6 +62,9 @@ namespace Engine
         cleanup();
     }
 
+    // -----------------------------------------------------------------------
+    // Init / Cleanup
+    // -----------------------------------------------------------------------
     void PerformanceMonitor::init(VulkanContext* ctx, Renderer* renderer, Window* window)
     {
         m_ctx = ctx;
@@ -47,14 +72,146 @@ namespace Engine
         m_window = window;
         m_initialized = true;
         m_frameTimeHistory.clear();
+
+        querySystemInfo(); // GPU name, total VRAM, DXGI adapter, initial CPU times
     }
 
     void PerformanceMonitor::cleanup()
     {
         m_initialized = false;
         m_frameTimeHistory.clear();
+
+#ifdef _WIN32
+        if (m_dxgiAdapter)
+        {
+            m_dxgiAdapter->Release();
+            m_dxgiAdapter = nullptr;
+        }
+#endif
     }
 
+    // -----------------------------------------------------------------------
+    // One-time system info query (called from init)
+    // -----------------------------------------------------------------------
+    void PerformanceMonitor::querySystemInfo()
+    {
+        if (!m_ctx) return;
+
+        // --- GPU name from Vulkan ---
+        VkPhysicalDeviceProperties props{};
+        vkGetPhysicalDeviceProperties(m_ctx->GetPhysicalDevice(), &props);
+        m_gpuName = props.deviceName;
+
+        // --- Total VRAM from Vulkan memory properties (always available) ---
+        VkPhysicalDeviceMemoryProperties memProps{};
+        vkGetPhysicalDeviceMemoryProperties(m_ctx->GetPhysicalDevice(), &memProps);
+        VkDeviceSize totalDeviceLocal = 0;
+        for (uint32_t i = 0; i < memProps.memoryHeapCount; i++)
+        {
+            if (memProps.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+            {
+                totalDeviceLocal += memProps.memoryHeaps[i].size;
+            }
+        }
+        m_vramTotalMB = static_cast<float>(totalDeviceLocal) / (1024.0f * 1024.0f);
+
+#ifdef _WIN32
+        // --- Find matching DXGI adapter by vendorID + deviceID ---
+        IDXGIFactory4* factory = nullptr;
+        HRESULT hr = CreateDXGIFactory1(__uuidof(IDXGIFactory4), reinterpret_cast<void**>(&factory));
+        if (SUCCEEDED(hr) && factory)
+        {
+            IDXGIAdapter1* adapter1 = nullptr;
+            for (UINT i = 0; factory->EnumAdapters1(i, &adapter1) != DXGI_ERROR_NOT_FOUND; ++i)
+            {
+                DXGI_ADAPTER_DESC1 desc{};
+                adapter1->GetDesc1(&desc);
+
+                if (desc.VendorId == props.vendorID && desc.DeviceId == props.deviceID)
+                {
+                    // Upgrade to IDXGIAdapter3 for QueryVideoMemoryInfo
+                    adapter1->QueryInterface(__uuidof(IDXGIAdapter3),
+                                             reinterpret_cast<void**>(&m_dxgiAdapter));
+                    // Also grab total VRAM from DXGI (more accurate for dedicated memory)
+                    m_vramTotalMB = static_cast<float>(desc.DedicatedVideoMemory) / (1024.0f * 1024.0f);
+                    adapter1->Release();
+                    break;
+                }
+                adapter1->Release();
+            }
+            factory->Release();
+        }
+
+        // --- Seed CPU-time tracking ---
+        FILETIME idle, kernel, user;
+        if (GetSystemTimes(&idle, &kernel, &user))
+        {
+            m_prevIdleTime   = fileTimeToU64(idle);
+            m_prevKernelTime = fileTimeToU64(kernel);
+            m_prevUserTime   = fileTimeToU64(user);
+        }
+#endif
+    }
+
+    // -----------------------------------------------------------------------
+    // Per-frame system metrics (VRAM used, CPU %, RAM)
+    // -----------------------------------------------------------------------
+    void PerformanceMonitor::updateSystemMetrics()
+    {
+#ifdef _WIN32
+        // --- VRAM usage via DXGI ---
+        if (m_dxgiAdapter)
+        {
+            DXGI_QUERY_VIDEO_MEMORY_INFO info{};
+            HRESULT hr = m_dxgiAdapter->QueryVideoMemoryInfo(
+                0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info);
+            if (SUCCEEDED(hr))
+            {
+                m_vramUsedMB = static_cast<float>(info.CurrentUsage) / (1024.0f * 1024.0f);
+            }
+        }
+
+        // --- System-wide CPU usage via GetSystemTimes ---
+        {
+            FILETIME idle, kernel, user;
+            if (GetSystemTimes(&idle, &kernel, &user))
+            {
+                uint64_t curIdle   = fileTimeToU64(idle);
+                uint64_t curKernel = fileTimeToU64(kernel);
+                uint64_t curUser   = fileTimeToU64(user);
+
+                uint64_t idleDiff   = curIdle   - m_prevIdleTime;
+                uint64_t kernelDiff = curKernel - m_prevKernelTime;
+                uint64_t userDiff   = curUser   - m_prevUserTime;
+                uint64_t totalSys   = kernelDiff + userDiff; // kernel includes idle
+
+                if (totalSys > 0)
+                {
+                    m_cpuUsagePercent =
+                        (1.0f - static_cast<float>(idleDiff) / static_cast<float>(totalSys)) * 100.0f;
+                }
+
+                m_prevIdleTime   = curIdle;
+                m_prevKernelTime = curKernel;
+                m_prevUserTime   = curUser;
+            }
+        }
+
+        // --- Process RAM (working set) ---
+        {
+            PROCESS_MEMORY_COUNTERS pmc{};
+            pmc.cb = sizeof(pmc);
+            if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc)))
+            {
+                m_ramUsedMB = static_cast<float>(pmc.WorkingSetSize) / (1024.0f * 1024.0f);
+            }
+        }
+#endif
+    }
+
+    // -----------------------------------------------------------------------
+    // Frame begin / end
+    // -----------------------------------------------------------------------
     void PerformanceMonitor::beginFrame()
     {
         m_frameStart = Clock::now();
@@ -89,8 +246,6 @@ namespace Engine
         }
 
         // Apply EMA (Exponential Moving Average) smoothing for display values
-        // Formula: smoothed = alpha * current + (1 - alpha) * smoothed_previous
-        // This provides stable, readable values while remaining responsive to changes
         m_smoothedFrameTimeMs = EMA_SMOOTHING_FACTOR * frameTimeMs + 
                                 (1.0f - EMA_SMOOTHING_FACTOR) * m_smoothedFrameTimeMs;
         m_smoothedCpuTimeMs = EMA_SMOOTHING_FACTOR * m_cpuTimeMs + 
@@ -98,12 +253,26 @@ namespace Engine
         m_smoothedGpuTimeMs = EMA_SMOOTHING_FACTOR * m_gpuTimeMs + 
                               (1.0f - EMA_SMOOTHING_FACTOR) * m_smoothedGpuTimeMs;
 
-        // Update metrics periodically
+        // Update FPS metrics periodically (100ms)
         m_updateTimer += frameTimeMs / 1000.0f;
         if (m_updateTimer >= UPDATE_INTERVAL)
         {
             updateMetrics();
             m_updateTimer = 0.0f;
+        }
+
+        // Update system metrics less frequently (500ms) to reduce overhead
+        m_sysUpdateTimer += frameTimeMs / 1000.0f;
+        if (m_sysUpdateTimer >= SYS_UPDATE_INTERVAL)
+        {
+            updateSystemMetrics();
+
+            // Smooth VRAM and CPU % so the overlay doesn't jump around
+            m_smoothedVramUsedMB = EMA_SMOOTHING_FACTOR * m_vramUsedMB +
+                                   (1.0f - EMA_SMOOTHING_FACTOR) * m_smoothedVramUsedMB;
+            m_smoothedCpuUsagePercent = EMA_SMOOTHING_FACTOR * m_cpuUsagePercent +
+                                       (1.0f - EMA_SMOOTHING_FACTOR) * m_smoothedCpuUsagePercent;
+            m_sysUpdateTimer = 0.0f;
         }
 
         m_frameTimeMs = frameTimeMs;
@@ -224,7 +393,16 @@ namespace Engine
             ImGui::PopStyleColor();
             ImGui::Separator();
 
-            // FPS Section
+            // --- GPU Name ---
+            if (!m_gpuName.empty())
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.85f, 1.0f, 1.0f));
+                ImGui::Text("GPU: %s", m_gpuName.c_str());
+                ImGui::PopStyleColor();
+                ImGui::Spacing();
+            }
+
+            // --- FPS Section ---
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 0.4f, 1.0f));
             ImGui::Text("FPS");
             ImGui::PopStyleColor();
@@ -246,15 +424,13 @@ namespace Engine
 
             ImGui::Spacing();
 
-            // Frame Time Section
+            // --- Frame Time Section ---
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 0.4f, 1.0f));
             ImGui::Text("Frame Time");
             ImGui::PopStyleColor();
-            // Display EMA-smoothed values for stable, readable metrics
             ImGui::Text("  Frame: %.2f ms", m_smoothedFrameTimeMs);
             ImGui::Text("  CPU:   %.2f ms", m_smoothedCpuTimeMs);
             
-            // GPU time from Vulkan timestamp queries (also EMA-smoothed)
             if (m_gpuTimeMs > 0.0f)
             {
                 ImGui::Text("  GPU:   %.2f ms", m_smoothedGpuTimeMs);
@@ -266,19 +442,89 @@ namespace Engine
 
             ImGui::Spacing();
 
-            // Resolution & Refresh Rate
+            // --- VRAM Section ---
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 0.4f, 1.0f));
+            ImGui::Text("VRAM");
+            ImGui::PopStyleColor();
+
+            if (m_vramTotalMB > 0.0f)
+            {
+                float usedDisplay = (m_smoothedVramUsedMB > 0.0f) ? m_smoothedVramUsedMB : m_vramUsedMB;
+                if (usedDisplay > 0.0f)
+                {
+                    float pct = (usedDisplay / m_vramTotalMB) * 100.0f;
+                    // Color-code VRAM: green < 60%, yellow 60-85%, red > 85%
+                    ImVec4 vramColor;
+                    if (pct < 60.0f)
+                        vramColor = ImVec4(0.4f, 1.0f, 0.4f, 1.0f);
+                    else if (pct < 85.0f)
+                        vramColor = ImVec4(1.0f, 1.0f, 0.4f, 1.0f);
+                    else
+                        vramColor = ImVec4(1.0f, 0.4f, 0.4f, 1.0f);
+
+                    ImGui::PushStyleColor(ImGuiCol_Text, vramColor);
+                    ImGui::Text("  Used: %.0f / %.0f MB (%.0f%%)",
+                                usedDisplay, m_vramTotalMB, pct);
+                    ImGui::PopStyleColor();
+                }
+                else
+                {
+                    ImGui::Text("  Total: %.0f MB", m_vramTotalMB);
+                    ImGui::TextDisabled("  Used:  N/A");
+                }
+            }
+            else
+            {
+                ImGui::TextDisabled("  N/A");
+            }
+
+            ImGui::Spacing();
+
+            // --- CPU Usage Section ---
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 0.4f, 1.0f));
+            ImGui::Text("System");
+            ImGui::PopStyleColor();
+
+            {
+                float cpuDisplay = (m_smoothedCpuUsagePercent > 0.0f)
+                                       ? m_smoothedCpuUsagePercent
+                                       : m_cpuUsagePercent;
+                if (cpuDisplay > 0.0f)
+                {
+                    ImVec4 cpuColor;
+                    if (cpuDisplay < 50.0f)
+                        cpuColor = ImVec4(0.4f, 1.0f, 0.4f, 1.0f);
+                    else if (cpuDisplay < 80.0f)
+                        cpuColor = ImVec4(1.0f, 1.0f, 0.4f, 1.0f);
+                    else
+                        cpuColor = ImVec4(1.0f, 0.4f, 0.4f, 1.0f);
+
+                    ImGui::PushStyleColor(ImGuiCol_Text, cpuColor);
+                    ImGui::Text("  CPU:  %.1f%%", cpuDisplay);
+                    ImGui::PopStyleColor();
+                }
+                else
+                {
+                    ImGui::TextDisabled("  CPU:  N/A");
+                }
+            }
+
+            if (m_ramUsedMB > 0.0f)
+            {
+                ImGui::Text("  RAM:  %.0f MB", m_ramUsedMB);
+            }
+
+            ImGui::Spacing();
+
+            // --- Resolution & Display ---
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 0.4f, 1.0f));
             ImGui::Text("Display");
             ImGui::PopStyleColor();
             ImGui::Text("  Resolution: %ux%u", getResolutionWidth(), getResolutionHeight());
-            
-            // Estimate refresh rate from inverse of target frame time (simplified)
-            float estimatedRefreshRate = (m_avgFPS > 0.0f) ? std::min(m_avgFPS, 144.0f) : 60.0f;
-            ImGui::TextDisabled("  Refresh: ~%.0f Hz", estimatedRefreshRate);
 
             ImGui::Spacing();
 
-            // Draw Calls Section
+            // --- Draw Calls Section ---
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 0.4f, 1.0f));
             ImGui::Text("Rendering");
             ImGui::PopStyleColor();
