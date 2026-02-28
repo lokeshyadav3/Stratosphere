@@ -373,12 +373,7 @@ public:
                     // In melee range — stop and attack
                     stops.push_back({myEntity, yaw});
 
-                    // Human team only attacks when spacebar is held
-                    bool canAttack = true;
-                    if (m_humanTeamId >= 0 && myTeam == static_cast<uint8_t>(m_humanTeamId))
-                        canAttack = m_humanAttacking;
-
-                    if (canAttack && cooldowns[row].timer <= 0.0f)
+                    if (cooldowns[row].timer <= 0.0f)
                     {
                         // Reset cooldown with jitter: interval * (1 ± jitter)
                         float jitter = 1.0f + m_realDist(m_rng) * m_cfg.cooldownJitter;

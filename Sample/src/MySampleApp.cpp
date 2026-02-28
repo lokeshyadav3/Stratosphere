@@ -523,15 +523,10 @@ void MySampleApp::OnRender()
                 hint = "Click anywhere to start — armies will charge toward each other!";
                 hintColor = IM_COL32(100, 255, 100, 240);
             }
-            else if (combat.isHumanAttacking())
-            {
-                hint = "[ SPACE ] ATTACKING!";
-                hintColor = IM_COL32(255, 200, 50, 255);
-            }
             else
             {
-                hint = "Hold [ SPACE ] to Attack";
-                hintColor = IM_COL32(200, 200, 200, 180);
+                hint = "Battle in progress!";
+                hintColor = IM_COL32(255, 200, 50, 255);
             }
 
             ImVec2 hintSize = ImGui::CalcTextSize(hint);
@@ -768,18 +763,7 @@ void MySampleApp::OnEvent(const std::string &name)
         return;
     }
 
-    if (evt == "SpacePressed")
-    {
-        if (m_inGame)
-            m_systems.GetCombatSystemMut().setHumanAttacking(true);
-        return;
-    }
 
-    if (evt == "SpaceReleased")
-    {
-        m_systems.GetCombatSystemMut().setHumanAttacking(false);
-        return;
-    }
 
     if (evt == "EscapePressed")
     {
