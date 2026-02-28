@@ -60,8 +60,16 @@ namespace Engine::ECS
                 m_renderAnimations.emplace_back(RenderAnimation{});
             if (hasFacing())
                 m_facings.emplace_back(Facing{});
+            if (hasObstacleRadius())
+                m_obstacleRadii.emplace_back(ObstacleRadius{});
+            if (hasPath())
+                m_paths.emplace_back(Path{});
             if (hasPosePalette())
                 m_posePalettes.emplace_back(PosePalette{});
+            if (hasTeam())
+                m_teams.emplace_back(Team{});
+            if (hasAttackCooldown())
+                m_attackCooldowns.emplace_back(AttackCooldown{});
 
             return row;
         }
@@ -111,8 +119,16 @@ namespace Engine::ECS
                 swapErase(m_renderAnimations);
             if (hasFacing())
                 swapErase(m_facings);
+            if (hasObstacleRadius())
+                swapErase(m_obstacleRadii);
+            if (hasPath())
+                swapErase(m_paths);
             if (hasPosePalette())
                 swapErase(m_posePalettes);
+            if (hasTeam())
+                swapErase(m_teams);
+            if (hasAttackCooldown())
+                swapErase(m_attackCooldowns);
 
             return moved;
         }
@@ -177,9 +193,25 @@ namespace Engine::ECS
                 {
                     m_facings[row] = std::get<Facing>(kv.second);
                 }
+                else if (std::holds_alternative<ObstacleRadius>(kv.second) && hasObstacleRadius())
+                {
+                    m_obstacleRadii[row] = std::get<ObstacleRadius>(kv.second);
+                }
+                else if (std::holds_alternative<Path>(kv.second) && hasPath())
+                {
+                    m_paths[row] = std::get<Path>(kv.second);
+                }
                 else if (std::holds_alternative<PosePalette>(kv.second) && hasPosePalette())
                 {
                     m_posePalettes[row] = std::get<PosePalette>(kv.second);
+                }
+                else if (std::holds_alternative<Team>(kv.second) && hasTeam())
+                {
+                    m_teams[row] = std::get<Team>(kv.second);
+                }
+                else if (std::holds_alternative<AttackCooldown>(kv.second) && hasAttackCooldown())
+                {
+                    m_attackCooldowns[row] = std::get<AttackCooldown>(kv.second);
                 }
             }
         }
@@ -224,8 +256,19 @@ namespace Engine::ECS
         std::vector<Facing> &facings() { return m_facings; }
         const std::vector<Facing> &facings() const { return m_facings; }
 
+        std::vector<ObstacleRadius> &obstacleRadii() { return m_obstacleRadii; }
+        const std::vector<ObstacleRadius> &obstacleRadii() const { return m_obstacleRadii; }
+
+        std::vector<Path> &paths() { return m_paths; }
+        const std::vector<Path> &paths() const { return m_paths; }
         std::vector<PosePalette> &posePalettes() { return m_posePalettes; }
         const std::vector<PosePalette> &posePalettes() const { return m_posePalettes; }
+
+        std::vector<Team> &teams() { return m_teams; }
+        const std::vector<Team> &teams() const { return m_teams; }
+
+        std::vector<AttackCooldown> &attackCooldowns() { return m_attackCooldowns; }
+        const std::vector<AttackCooldown> &attackCooldowns() const { return m_attackCooldowns; }
 
         // Helpers
         bool hasPosition() const { return m_hasPosition; }
@@ -239,7 +282,12 @@ namespace Engine::ECS
         bool hasRenderModel() const { return m_hasRenderModel; }
         bool hasRenderAnimation() const { return m_hasRenderAnimation; }
         bool hasFacing() const { return m_hasFacing; }
+        bool hasObstacle() const { return m_hasObstacle; }
+        bool hasObstacleRadius() const { return m_hasObstacleRadius; }
+        bool hasPath() const { return m_hasPath; }
         bool hasPosePalette() const { return m_hasPosePalette; }
+        bool hasTeam() const { return m_hasTeam; }
+        bool hasAttackCooldown() const { return m_hasAttackCooldown; }
 
         // Resolve which known components are present in signature; enables arrays accordingly.
         void resolveKnownComponents(ComponentRegistry &registry)
@@ -255,6 +303,9 @@ namespace Engine::ECS
             const uint32_t rmId = registry.ensureId("RenderModel");
             const uint32_t raId = registry.ensureId("RenderAnimation");
             const uint32_t faceId = registry.ensureId("Facing");
+            const uint32_t obsId = registry.ensureId("Obstacle");
+            const uint32_t obsRId = registry.ensureId("ObstacleRadius");
+            const uint32_t pathId = registry.ensureId("Path");
             const uint32_t ppId = registry.ensureId("PosePalette");
             m_hasPosition = m_signature.has(posId);
             m_hasVelocity = m_signature.has(velId);
@@ -267,7 +318,15 @@ namespace Engine::ECS
             m_hasRenderModel = m_signature.has(rmId);
             m_hasRenderAnimation = m_signature.has(raId);
             m_hasFacing = m_signature.has(faceId);
+            m_hasObstacle = m_signature.has(obsId);
+            m_hasObstacleRadius = m_signature.has(obsRId);
+            m_hasPath = m_signature.has(pathId);
             m_hasPosePalette = m_signature.has(ppId);
+
+            const uint32_t teamId = registry.ensureId("Team");
+            const uint32_t ackId = registry.ensureId("AttackCooldown");
+            m_hasTeam = m_signature.has(teamId);
+            m_hasAttackCooldown = m_signature.has(ackId);
         }
 
     private:
@@ -286,7 +345,11 @@ namespace Engine::ECS
         std::vector<RenderModel> m_renderModels;
         std::vector<RenderAnimation> m_renderAnimations;
         std::vector<Facing> m_facings;
+        std::vector<ObstacleRadius> m_obstacleRadii;
+        std::vector<Path> m_paths;
         std::vector<PosePalette> m_posePalettes;
+        std::vector<Team> m_teams;
+        std::vector<AttackCooldown> m_attackCooldowns;
 
         // Flags indicating which arrays are active.
         bool m_hasPosition = false;
@@ -300,7 +363,12 @@ namespace Engine::ECS
         bool m_hasRenderModel = false;
         bool m_hasRenderAnimation = false;
         bool m_hasFacing = false;
+        bool m_hasObstacle = false;
+        bool m_hasObstacleRadius = false;
+        bool m_hasPath = false;
         bool m_hasPosePalette = false;
+        bool m_hasTeam = false;
+        bool m_hasAttackCooldown = false;
     };
 
     class ArchetypeStoreManager

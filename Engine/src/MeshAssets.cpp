@@ -110,7 +110,8 @@ namespace Engine
         m_ib.buffer = dstIBuffer;
         m_ib.memory = dstIMemory;
 
-        // 5) Copy AABB
+        // 5) Store vertex stride and copy AABB
+        m_vertexStride = data.vertexStride;
         std::memcpy(m_aabbMin, data.aabbMin, sizeof(m_aabbMin));
         std::memcpy(m_aabbMax, data.aabbMax, sizeof(m_aabbMax));
 

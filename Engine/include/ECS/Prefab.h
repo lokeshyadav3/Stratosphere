@@ -309,6 +309,56 @@ namespace Engine::ECS
             }
         }
 
+        // Parse defaults: ObstacleRadius
+        {
+            std::regex re_obsR(R"("ObstacleRadius"\s*:\s*\{\s*"r"\s*:\s*([-+]?\d*\.?\d+)\s*\})");
+            std::smatch m;
+            if (std::regex_search(jsonText, m, re_obsR))
+            {
+                ObstacleRadius orad{};
+                orad.r = std::stof(m[1].str());
+                uint32_t cid = registry.ensureId("ObstacleRadius");
+                p.defaults.emplace(cid, orad);
+            }
+        }
+
+        // Parse defaults: Path (mostly for ensuring ID existence if default used)
+        {
+            // Path has no JSON fields for now, but if present in defaults block:
+             if (jsonText.find("\"Path\"") != std::string::npos) 
+             {
+                 // ensure ID
+                (void)registry.ensureId("Path");
+             }
+        }
+
+        // Parse defaults: Team
+        {
+            std::regex re_team(R"("Team"\s*:\s*\{\s*"id"\s*:\s*(\d+)\s*\})");
+            std::smatch m;
+            if (std::regex_search(jsonText, m, re_team))
+            {
+                Team t{};
+                t.id = static_cast<uint8_t>(std::stoi(m[1].str()));
+                uint32_t cid = registry.ensureId("Team");
+                p.defaults.emplace(cid, t);
+            }
+        }
+
+        // Parse defaults: AttackCooldown
+        {
+            std::regex re_ack(R"("AttackCooldown"\s*:\s*\{\s*"timer"\s*:\s*([-+]?\d*\.?\d+),\s*"interval"\s*:\s*([-+]?\d*\.?\d+)\s*\})");
+            std::smatch m;
+            if (std::regex_search(jsonText, m, re_ack))
+            {
+                AttackCooldown ac{};
+                ac.timer = std::stof(m[1].str());
+                ac.interval = std::stof(m[2].str());
+                uint32_t cid = registry.ensureId("AttackCooldown");
+                p.defaults.emplace(cid, ac);
+            }
+        }
+
         // Validate defaults align with signature; drop mismatches to keep consistency.
         if (!p.validateDefaults())
         {

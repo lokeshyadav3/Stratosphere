@@ -63,7 +63,14 @@ namespace Engine
                     if (key == GLFW_KEY_UP)    d->EventCallback("UpPressed");
                     if (key == GLFW_KEY_DOWN)  d->EventCallback("DownPressed");
                     if (key == GLFW_KEY_ESCAPE) d->EventCallback("EscapePressed");
+                    if (key == GLFW_KEY_SPACE)  d->EventCallback("SpacePressed");
+                    if (key == GLFW_KEY_ENTER) d->EventCallback("EnterPressed");
                     if (key == GLFW_KEY_F1) d->EventCallback("F1Pressed");
+                }
+                if (action == GLFW_RELEASE) {
+                    auto d = static_cast<GLFWWindowData*>(glfwGetWindowUserPointer(wnd));
+                    if (!d || !d->EventCallback) return;
+                    if (key == GLFW_KEY_SPACE)  d->EventCallback("SpaceReleased");
                 } });
 
             glfwSetCursorPosCallback(data->Window, [](GLFWwindow *wnd, double x, double y)

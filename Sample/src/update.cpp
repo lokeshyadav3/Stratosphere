@@ -17,15 +17,18 @@ namespace Sample
 
         m_command.buildMasks(registry);
         m_steering.buildMasks(registry);
-        m_spatial.buildMasks(registry);
-        m_avoidance.buildMasks(registry);
+        m_navGridBuilder.buildMasks(registry);
+        m_pathfinding.buildMasks(registry);
         m_movement.buildMasks(registry);
+        m_spatialIndex.buildMasks(registry);
+        m_combat.buildMasks(registry);
+        m_combat.setSpatialIndex(&m_spatialIndex);
         m_characterAnim.buildMasks(registry);
         m_poseUpdate.buildMasks(registry);
         m_renderModel.buildMasks(registry);
 
-        // Neighbor radius (meters). Tune later; matches SpatialIndexSystem doc.
-        m_spatial.setCellSize(m_spatial.getCellSize());
+        // Initialize NavGrid (cover map area)
+        m_navGrid.rebuild(2.0f, -400.0f, -400.0f, 400.0f, 400.0f);
 
         m_initialized = true;
     }
@@ -38,14 +41,34 @@ namespace Sample
         if (dtSeconds <= 0.0f)
             return;
 
-        // Suggested order per LocalAvoidanceSystem.h
+        // 1. Input
         m_command.update(ecs, dtSeconds);
+
+        // 2. NavGrid (Rebuild grid from static obstacles)
+        m_navGridBuilder.update(ecs, dtSeconds);
+
+        // 3. Pathfinding (Plan paths for units with invalid/new targets)
+        m_pathfinding.update(ecs, dtSeconds);
+
+        // 4. Steering (Follow waypoints, update facing)
         m_steering.update(ecs, dtSeconds);
-        // m_spatial.update(ecs.stores, dtSeconds);    // Disabled: SpatialIndexSystem
-        // m_avoidance.update(ecs.stores, dtSeconds);  // Disabled: LocalAvoidanceSystem
+
+        // 5. Movement integration
         m_movement.update(ecs, dtSeconds);
+
+        // 5.5 Spatial index rebuild
+        m_spatialIndex.update(ecs, dtSeconds);
+
+        // 5.6 Combat (find enemies, attack, damage, death)
+        m_combat.update(ecs, dtSeconds);
+        
+        // 6. Animation selection
         m_characterAnim.update(ecs, dtSeconds);
+
+        // 7. Pose update
         m_poseUpdate.update(ecs, dtSeconds);
+        
+        // 8. Render
         m_renderModel.update(ecs, dtSeconds);
     }
 
@@ -54,6 +77,7 @@ namespace Sample
         m_characterAnim.setAssetManager(assets);
         m_poseUpdate.setAssetManager(assets);
         m_renderModel.setAssetManager(assets);
+        m_combat.setAssetManager(assets);
     }
 
     void SystemRunner::SetRenderer(Engine::Renderer *renderer)

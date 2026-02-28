@@ -149,6 +149,14 @@ add_custom_command(TARGET SampleApp POST_BUILD
     COMMENT "Copying scenario JSON: ${CMAKE_SOURCE_DIR}/Sample/Scinerio.json"
 )
 
+# Copy battle config next to the executable.
+add_custom_command(TARGET SampleApp POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/Sample/BattleConfig.json"
+        $<TARGET_FILE_DIR:SampleApp>/BattleConfig.json
+    COMMENT "Copying battle config JSON: ${CMAKE_SOURCE_DIR}/Sample/BattleConfig.json"
+)
+
 # Copy all *.json in Sample/entities to runtime output (SampleApp/entities/)
 file(GLOB_RECURSE SAMPLE_ENTITY_JSON_FILES CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/Sample/entities/*.json"

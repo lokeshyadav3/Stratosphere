@@ -30,6 +30,7 @@ namespace Engine
         VkBuffer getIndexBuffer() const { return m_ib.buffer; }
         uint32_t getIndexCount() const { return m_indexCount; }
         VkIndexType getIndexType() const { return m_indexType; }
+        uint32_t getVertexStride() const { return m_vertexStride; }
         const float *getAABBMin() const { return m_aabbMin; }
         const float *getAABBMax() const { return m_aabbMax; }
 
@@ -38,6 +39,7 @@ namespace Engine
         IndexBufferHandle m_ib{};
         uint32_t m_indexCount = 0;
         VkIndexType m_indexType = VK_INDEX_TYPE_UINT32;
+        uint32_t m_vertexStride = 0;
         float m_aabbMin[3]{};
         float m_aabbMax[3]{};
     };

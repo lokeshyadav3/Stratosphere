@@ -88,10 +88,40 @@ namespace Engine::ECS
         float blend = 0.55f;   // velocity smoothing
     };
 
-    // Tag-like component used by selection.
-    // Stored in the archetype signature (no per-row storage).
+    // Row-level tag used by selection (no per-row storage; stored in row masks).
     struct Selected
     {
+    };
+
+    // -----------------------
+    // Obstacle Components
+    // -----------------------
+
+    // Tag for static, impassable entities
+    struct Obstacle
+    {
+    };
+
+    // Collision footprint for obstacles (meters)
+    struct ObstacleRadius
+    {
+        float r = 1.0f;
+    };
+
+    // -----------------------
+    // Pathfinding Components
+    // -----------------------
+
+    // Waypoint buffer for A* pathfinding
+    struct Path
+    {
+        static constexpr uint32_t MAX_WAYPOINTS = 64;
+
+        float waypointsX[MAX_WAYPOINTS];
+        float waypointsZ[MAX_WAYPOINTS];
+        uint32_t count = 0;   // how many waypoints are valid
+        uint32_t current = 0; // index of the next waypoint to walk toward
+        bool valid = false;   // was a path successfully found?
     };
 
     struct RenderModel
@@ -127,8 +157,25 @@ namespace Engine::ECS
         uint32_t jointCount = 0;
     };
 
+    // -----------------------
+    // Combat Components
+    // -----------------------
+
+    // Which team/faction the entity belongs to (0 = Team A, 1 = Team B, etc.)
+    struct Team
+    {
+        uint8_t id = 0;
+    };
+
+    // Melee attack cooldown timer.
+    struct AttackCooldown
+    {
+        float timer = 0.0f;      // current countdown (seconds)
+        float interval = 1.5f;   // time between attacks (seconds)
+    };
+
     // Typed defaults per component ID (used by Prefabs/Stores).
-    using DefaultValue = std::variant<Position, Velocity, Health, MoveTarget, MoveSpeed, Radius, Separation, AvoidanceParams, RenderModel, RenderAnimation, Facing, PosePalette>;
+    using DefaultValue = std::variant<Position, Velocity, Health, MoveTarget, MoveSpeed, Radius, Separation, AvoidanceParams, RenderModel, RenderAnimation, Facing, ObstacleRadius, Path, PosePalette, Team, AttackCooldown>;
     // -----------------------
     // Component Registry
     // -----------------------

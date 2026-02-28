@@ -10,9 +10,8 @@ class CommandSystem : public Engine::ECS::SystemBase
 public:
     CommandSystem()
     {
-        // Require MoveTarget + MoveSpeed so we only command movable units.
-        // Selected is now an archetype tag, not a per-row mask.
-        setRequiredNames({"Selected", "MoveTarget", "MoveSpeed"});
+        // Only command selected, movable units.
+        setRequiredNames({"MoveTarget", "MoveSpeed", "Selected"});
         setExcludedNames({"Disabled", "Dead"});
     }
 
@@ -49,7 +48,6 @@ public:
             m_queryId = ecs.queries.createQuery(required(), excluded(), ecs.stores);
 
         uint32_t totalSelected = 0;
-        uint32_t totalUpdated = 0;
 
         const auto &q = ecs.queries.get(m_queryId);
         for (uint32_t archetypeId : q.matchingArchetypeIds)
@@ -77,13 +75,17 @@ public:
                 const float oz = (static_cast<float>(row) - half) * spacing;
 
                 targets[k].x = clamp(m_pendingX + ox, kMinWorld, kMaxWorld);
-                targets[k].y = m_pendingY;
+                targets[k].y = m_pendingY; // height
                 targets[k].z = clamp(m_pendingZ + oz, kMinWorld, kMaxWorld);
                 targets[k].active = 1;
 
+                // Mark MoveTarget dirty so SteeringSystem picks up the change.
                 ecs.markDirty(m_moveTargetId, archetypeId, k);
-                ++totalUpdated;
             }
+
+            std::cout << "[CommandSystem] Selected=" << selCount
+                      << " baseTarget=(" << m_pendingX << "," << m_pendingZ << ")"
+                      << " gridSide=" << side << " spacing=" << spacing << "\n";
         }
 
         m_hasPending = false;

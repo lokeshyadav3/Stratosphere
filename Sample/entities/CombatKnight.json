@@ -1,0 +1,23 @@
+{
+    "name": "CombatKnight",
+    "components": [
+        "Position", "Velocity", "Health", "MoveTarget", "MoveSpeed",
+        "Radius", "Separation", "AvoidanceParams", "Facing", "Path",
+        "Team", "AttackCooldown"
+    ],
+    "defaults": {
+        "Position":        { "x": 0.0, "y": 0.0, "z": 0.0 },
+        "Velocity":        { "x": 0.0, "y": 0.0, "z": 0.0 },
+        "Health":          { "value": 140.0 },
+        "MoveTarget":      { "x": 0.0, "y": 0.0, "z": 0.0, "active": 0 },
+        "MoveSpeed":       { "value": 5.0 },
+        "Radius":          { "r": 0.5 },
+        "Separation":      { "value": 0.8 },
+        "AvoidanceParams": { "strength": 4.0, "maxAccel": 8.0, "blend": 0.55 },
+        "Facing":          { "yaw": 0.0 },
+        "Path":            {},
+        "Team":            { "id": 0 },
+        "AttackCooldown":  { "timer": 0.0, "interval": 1.5 }
+    },
+    "visual": { "model": "assets/Knight/Knight.smodel" }
+}

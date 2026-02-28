@@ -10,7 +10,8 @@
         "Separation",
         "AvoidanceParams",
         "RenderMesh",
-        "Facing"
+        "Facing",
+        "Path"
     ],
     "defaults": {
         "Position": {
@@ -48,7 +49,8 @@
         },
         "Facing": {
             "yaw": 0.0
-        }
+        },
+        "Path": {}
     },
     "visual": {
         "model": "assets/Knight/Knight.smodel"

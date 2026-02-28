@@ -14,6 +14,9 @@
 #include <cstdint>
 #include <vector>
 #include <algorithm>
+#ifdef _MSC_VER
+#include <intrin.h>
+#endif
 #include "ECS/Query.h"
 #include "ECS/ArchetypeStore.h"
 
@@ -159,7 +162,13 @@ namespace Engine::ECS
                 while (word)
                 {
                     const uint64_t lsb = word & (~word + 1ull);
+#ifdef _MSC_VER
+                    unsigned long idx;
+                    _BitScanForward64(&idx, word);
+                    const uint32_t bit = static_cast<uint32_t>(idx);
+#else
                     const uint32_t bit = static_cast<uint32_t>(__builtin_ctzll(word));
+#endif
                     const uint32_t row = static_cast<uint32_t>(w * 64u + bit);
                     rows.push_back(row);
                     word ^= lsb;
