@@ -149,9 +149,9 @@ target_link_libraries(Engine
         nlohmann_json::nlohmann_json
 )
 
-# Windows system libraries for PerformanceMonitor (DXGI for VRAM, psapi for RAM)
+# Windows system libraries for PerformanceMonitor (psapi for RAM)
 if (WIN32)
-    target_link_libraries(Engine PRIVATE dxgi psapi)
+    target_link_libraries(Engine PRIVATE psapi)
 endif()
 
 if (UNIX AND NOT APPLE)

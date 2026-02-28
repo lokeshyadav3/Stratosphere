@@ -5,11 +5,6 @@
 #include <cstdint>
 #include <string>
 
-// Forward-declare DXGI adapter so we don't pull <dxgi1_4.h> into the header
-#ifdef _WIN32
-struct IDXGIAdapter3;
-#endif
-
 namespace Engine
 {
     class Window;
@@ -104,8 +99,9 @@ namespace Engine
     private:
         void updateMetrics();
         void calculatePercentileFPS();
-        void querySystemInfo();       // One-time GPU name, total VRAM, DXGI init
+        void querySystemInfo();       // One-time GPU name, total VRAM
         void updateSystemMetrics();   // Per-frame VRAM used, CPU %, RAM
+        void queryVramViaVulkan();     // Cross-platform VRAM via VK_EXT_memory_budget
 
     private:
         // References to engine systems
@@ -140,7 +136,8 @@ namespace Engine
         // GPU / VRAM info
         std::string m_gpuName;
         float m_vramTotalMB = 0.0f;     // Total device-local VRAM (MB)
-        float m_vramUsedMB  = 0.0f;     // Currently used VRAM (MB) - via DXGI
+        float m_vramUsedMB  = 0.0f;     // Currently used VRAM (MB) - via VK_EXT_memory_budget
+        bool  m_hasMemoryBudget = false;  // VK_EXT_memory_budget supported
 
         // CPU / RAM usage
         float m_cpuUsagePercent = 0.0f;  // System-wide CPU usage %
@@ -170,13 +167,14 @@ namespace Engine
         static constexpr float SYS_UPDATE_INTERVAL = 0.5f;
 
 #ifdef _WIN32
-        // DXGI adapter for VRAM queries
-        IDXGIAdapter3* m_dxgiAdapter = nullptr;
-
         // CPU usage tracking (GetSystemTimes delta)
         uint64_t m_prevIdleTime   = 0;
         uint64_t m_prevKernelTime = 0;
         uint64_t m_prevUserTime   = 0;
+#elif defined(__linux__)
+        // CPU usage tracking (/proc/stat delta)
+        uint64_t m_prevCpuTotal = 0;
+        uint64_t m_prevCpuIdle  = 0;
 #endif
     };
 

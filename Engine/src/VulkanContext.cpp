@@ -10,8 +10,12 @@
 #include <algorithm>
 #include <cstring>
 
-static const std::vector<const char *> deviceExtensions = {
+static const std::vector<const char *> requiredDeviceExtensions = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+
+// Optional extensions to enable if supported
+static const std::vector<const char *> optionalDeviceExtensions = {
+    VK_EXT_MEMORY_BUDGET_EXTENSION_NAME};
 
 namespace Engine
 {
@@ -347,9 +351,33 @@ namespace Engine
         createInfo.pQueueCreateInfos = queueCreateInfos.data();
         createInfo.pEnabledFeatures = &deviceFeatures;
 
-        // Device extensions (swapchain)
-        createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
-        createInfo.ppEnabledExtensionNames = deviceExtensions.data();
+        // Build device extension list: required + available optional extensions
+        std::vector<const char *> enabledExtensions(requiredDeviceExtensions.begin(),
+                                                     requiredDeviceExtensions.end());
+        {
+            uint32_t extCount = 0;
+            vkEnumerateDeviceExtensionProperties(m_SelectedDeviceInfo.physicalDevice,
+                                                  nullptr, &extCount, nullptr);
+            std::vector<VkExtensionProperties> availableExts(extCount);
+            vkEnumerateDeviceExtensionProperties(m_SelectedDeviceInfo.physicalDevice,
+                                                  nullptr, &extCount, availableExts.data());
+            for (const char *optExt : optionalDeviceExtensions)
+            {
+                for (const auto &avail : availableExts)
+                {
+                    if (std::strcmp(avail.extensionName, optExt) == 0)
+                    {
+                        enabledExtensions.push_back(optExt);
+                        std::cout << "[Vulkan] Enabling optional extension: " << optExt << "\n";
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Device extensions
+        createInfo.enabledExtensionCount = static_cast<uint32_t>(enabledExtensions.size());
+        createInfo.ppEnabledExtensionNames = enabledExtensions.data();
 
         // No device layers (deprecated), validation layers enabled at instance level if desired
         createInfo.enabledLayerCount = 0;

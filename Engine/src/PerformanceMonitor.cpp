@@ -8,12 +8,22 @@
 #include <numeric>
 #include <atomic>
 #include <cmath>
+#include <cstring>
+#include <fstream>
+#include <iostream>
+#include <sstream>
 
 #ifdef _WIN32
 #define NOMINMAX
 #include <windows.h>
-#include <dxgi1_4.h>
 #include <psapi.h>
+#elif defined(__linux__)
+#include <unistd.h>
+#elif defined(__APPLE__)
+#include <mach/mach.h>
+#include <mach/processor_info.h>
+#include <mach/mach_host.h>
+#include <sys/sysctl.h>
 #endif
 
 namespace Engine
@@ -80,14 +90,6 @@ namespace Engine
     {
         m_initialized = false;
         m_frameTimeHistory.clear();
-
-#ifdef _WIN32
-        if (m_dxgiAdapter)
-        {
-            m_dxgiAdapter->Release();
-            m_dxgiAdapter = nullptr;
-        }
-#endif
     }
 
     // -----------------------------------------------------------------------
@@ -102,7 +104,7 @@ namespace Engine
         vkGetPhysicalDeviceProperties(m_ctx->GetPhysicalDevice(), &props);
         m_gpuName = props.deviceName;
 
-        // --- Total VRAM from Vulkan memory properties (always available) ---
+        // --- Total VRAM from Vulkan memory properties ---
         VkPhysicalDeviceMemoryProperties memProps{};
         vkGetPhysicalDeviceMemoryProperties(m_ctx->GetPhysicalDevice(), &memProps);
         VkDeviceSize totalDeviceLocal = 0;
@@ -115,34 +117,29 @@ namespace Engine
         }
         m_vramTotalMB = static_cast<float>(totalDeviceLocal) / (1024.0f * 1024.0f);
 
-#ifdef _WIN32
-        // --- Find matching DXGI adapter by vendorID + deviceID ---
-        IDXGIFactory4* factory = nullptr;
-        HRESULT hr = CreateDXGIFactory1(__uuidof(IDXGIFactory4), reinterpret_cast<void**>(&factory));
-        if (SUCCEEDED(hr) && factory)
+        // --- Check VK_EXT_memory_budget support ---
+        uint32_t extCount = 0;
+        vkEnumerateDeviceExtensionProperties(m_ctx->GetPhysicalDevice(), nullptr, &extCount, nullptr);
+        std::vector<VkExtensionProperties> exts(extCount);
+        vkEnumerateDeviceExtensionProperties(m_ctx->GetPhysicalDevice(), nullptr, &extCount, exts.data());
+        for (const auto &ext : exts)
         {
-            IDXGIAdapter1* adapter1 = nullptr;
-            for (UINT i = 0; factory->EnumAdapters1(i, &adapter1) != DXGI_ERROR_NOT_FOUND; ++i)
+            if (std::strcmp(ext.extensionName, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) == 0)
             {
-                DXGI_ADAPTER_DESC1 desc{};
-                adapter1->GetDesc1(&desc);
-
-                if (desc.VendorId == props.vendorID && desc.DeviceId == props.deviceID)
-                {
-                    // Upgrade to IDXGIAdapter3 for QueryVideoMemoryInfo
-                    adapter1->QueryInterface(__uuidof(IDXGIAdapter3),
-                                             reinterpret_cast<void**>(&m_dxgiAdapter));
-                    // Also grab total VRAM from DXGI (more accurate for dedicated memory)
-                    m_vramTotalMB = static_cast<float>(desc.DedicatedVideoMemory) / (1024.0f * 1024.0f);
-                    adapter1->Release();
-                    break;
-                }
-                adapter1->Release();
+                m_hasMemoryBudget = true;
+                break;
             }
-            factory->Release();
         }
+        if (m_hasMemoryBudget)
+            std::cout << "[PerfMon] VK_EXT_memory_budget available — cross-platform VRAM tracking enabled\n";
+        else
+            std::cout << "[PerfMon] VK_EXT_memory_budget not available — VRAM usage will show N/A\n";
 
-        // --- Seed CPU-time tracking ---
+        // Do an initial VRAM query to get total from budget
+        queryVramViaVulkan();
+
+        // --- Seed platform-specific CPU tracking ---
+#ifdef _WIN32
         FILETIME idle, kernel, user;
         if (GetSystemTimes(&idle, &kernel, &user))
         {
@@ -150,7 +147,54 @@ namespace Engine
             m_prevKernelTime = fileTimeToU64(kernel);
             m_prevUserTime   = fileTimeToU64(user);
         }
+#elif defined(__linux__)
+        // Seed /proc/stat CPU tracking
+        std::ifstream statFile("/proc/stat");
+        if (statFile.is_open())
+        {
+            std::string line;
+            std::getline(statFile, line);
+            std::istringstream iss(line);
+            std::string cpu;
+            uint64_t userT, nice, system, idle, iowait, irq, softirq, steal;
+            iss >> cpu >> userT >> nice >> system >> idle >> iowait >> irq >> softirq >> steal;
+            m_prevCpuIdle  = idle + iowait;
+            m_prevCpuTotal = userT + nice + system + idle + iowait + irq + softirq + steal;
+        }
 #endif
+    }
+
+    // -----------------------------------------------------------------------
+    // Cross-platform VRAM query via VK_EXT_memory_budget
+    // -----------------------------------------------------------------------
+    void PerformanceMonitor::queryVramViaVulkan()
+    {
+        if (!m_ctx || !m_hasMemoryBudget)
+            return;
+
+        VkPhysicalDeviceMemoryBudgetPropertiesEXT budgetProps{};
+        budgetProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT;
+
+        VkPhysicalDeviceMemoryProperties2 memProps2{};
+        memProps2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2;
+        memProps2.pNext = &budgetProps;
+
+        vkGetPhysicalDeviceMemoryProperties2(m_ctx->GetPhysicalDevice(), &memProps2);
+
+        // Sum device-local heaps
+        VkDeviceSize totalBudget = 0;
+        VkDeviceSize totalUsage  = 0;
+        for (uint32_t i = 0; i < memProps2.memoryProperties.memoryHeapCount; i++)
+        {
+            if (memProps2.memoryProperties.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+            {
+                totalBudget += budgetProps.heapBudget[i];
+                totalUsage  += budgetProps.heapUsage[i];
+            }
+        }
+
+        m_vramUsedMB  = static_cast<float>(totalUsage)  / (1024.0f * 1024.0f);
+        // Keep m_vramTotalMB as the physical GPU VRAM (set once in querySystemInfo)
     }
 
     // -----------------------------------------------------------------------
@@ -158,20 +202,12 @@ namespace Engine
     // -----------------------------------------------------------------------
     void PerformanceMonitor::updateSystemMetrics()
     {
-#ifdef _WIN32
-        // --- VRAM usage via DXGI ---
-        if (m_dxgiAdapter)
-        {
-            DXGI_QUERY_VIDEO_MEMORY_INFO info{};
-            HRESULT hr = m_dxgiAdapter->QueryVideoMemoryInfo(
-                0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info);
-            if (SUCCEEDED(hr))
-            {
-                m_vramUsedMB = static_cast<float>(info.CurrentUsage) / (1024.0f * 1024.0f);
-            }
-        }
+        // --- VRAM usage via VK_EXT_memory_budget (cross-platform) ---
+        queryVramViaVulkan();
 
-        // --- System-wide CPU usage via GetSystemTimes ---
+        // --- Platform-specific CPU and RAM metrics ---
+#ifdef _WIN32
+        // System-wide CPU usage via GetSystemTimes
         {
             FILETIME idle, kernel, user;
             if (GetSystemTimes(&idle, &kernel, &user))
@@ -183,7 +219,7 @@ namespace Engine
                 uint64_t idleDiff   = curIdle   - m_prevIdleTime;
                 uint64_t kernelDiff = curKernel - m_prevKernelTime;
                 uint64_t userDiff   = curUser   - m_prevUserTime;
-                uint64_t totalSys   = kernelDiff + userDiff; // kernel includes idle
+                uint64_t totalSys   = kernelDiff + userDiff;
 
                 if (totalSys > 0)
                 {
@@ -197,13 +233,112 @@ namespace Engine
             }
         }
 
-        // --- Process RAM (working set) ---
+        // Process RAM (working set)
         {
             PROCESS_MEMORY_COUNTERS pmc{};
             pmc.cb = sizeof(pmc);
             if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc)))
             {
                 m_ramUsedMB = static_cast<float>(pmc.WorkingSetSize) / (1024.0f * 1024.0f);
+            }
+        }
+
+#elif defined(__linux__)
+        // System-wide CPU usage via /proc/stat
+        {
+            std::ifstream statFile("/proc/stat");
+            if (statFile.is_open())
+            {
+                std::string line;
+                std::getline(statFile, line);
+                std::istringstream iss(line);
+                std::string cpu;
+                uint64_t userT, nice, system, idle, iowait, irq, softirq, steal;
+                iss >> cpu >> userT >> nice >> system >> idle >> iowait >> irq >> softirq >> steal;
+
+                uint64_t curIdle  = idle + iowait;
+                uint64_t curTotal = userT + nice + system + idle + iowait + irq + softirq + steal;
+
+                uint64_t totalDiff = curTotal - m_prevCpuTotal;
+                uint64_t idleDiff  = curIdle  - m_prevCpuIdle;
+
+                if (totalDiff > 0)
+                {
+                    m_cpuUsagePercent =
+                        (1.0f - static_cast<float>(idleDiff) / static_cast<float>(totalDiff)) * 100.0f;
+                }
+
+                m_prevCpuTotal = curTotal;
+                m_prevCpuIdle  = curIdle;
+            }
+        }
+
+        // Process RAM via /proc/self/status (VmRSS)
+        {
+            std::ifstream statusFile("/proc/self/status");
+            if (statusFile.is_open())
+            {
+                std::string line;
+                while (std::getline(statusFile, line))
+                {
+                    if (line.rfind("VmRSS:", 0) == 0)
+                    {
+                        std::istringstream iss(line);
+                        std::string label;
+                        uint64_t kb;
+                        iss >> label >> kb; // "VmRSS:" then value in kB
+                        m_ramUsedMB = static_cast<float>(kb) / 1024.0f;
+                        break;
+                    }
+                }
+            }
+        }
+
+#elif defined(__APPLE__)
+        // System-wide CPU usage via host_processor_info (Mach)
+        {
+            natural_t numCPUs = 0;
+            processor_info_array_t cpuInfo = nullptr;
+            mach_msg_type_number_t numCpuInfo = 0;
+
+            kern_return_t kr = host_processor_info(
+                mach_host_self(), PROCESSOR_CPU_LOAD_INFO,
+                &numCPUs, &cpuInfo, &numCpuInfo);
+
+            if (kr == KERN_SUCCESS && numCPUs > 0)
+            {
+                uint64_t totalUser = 0, totalSystem = 0, totalIdle = 0, totalNice = 0;
+                for (natural_t i = 0; i < numCPUs; i++)
+                {
+                    totalUser   += cpuInfo[CPU_STATE_MAX * i + CPU_STATE_USER];
+                    totalSystem += cpuInfo[CPU_STATE_MAX * i + CPU_STATE_SYSTEM];
+                    totalIdle   += cpuInfo[CPU_STATE_MAX * i + CPU_STATE_IDLE];
+                    totalNice   += cpuInfo[CPU_STATE_MAX * i + CPU_STATE_NICE];
+                }
+                uint64_t total = totalUser + totalSystem + totalIdle + totalNice;
+                if (total > 0)
+                {
+                    m_cpuUsagePercent =
+                        static_cast<float>(totalUser + totalSystem + totalNice) /
+                        static_cast<float>(total) * 100.0f;
+                }
+
+                vm_deallocate(mach_task_self(),
+                              reinterpret_cast<vm_address_t>(cpuInfo),
+                              numCpuInfo * sizeof(integer_t));
+            }
+        }
+
+        // Process RAM via task_info (Mach)
+        {
+            mach_task_basic_info_data_t info{};
+            mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+            kern_return_t kr = task_info(
+                mach_task_self(), MACH_TASK_BASIC_INFO,
+                reinterpret_cast<task_info_t>(&info), &count);
+            if (kr == KERN_SUCCESS)
+            {
+                m_ramUsedMB = static_cast<float>(info.resident_size) / (1024.0f * 1024.0f);
             }
         }
 #endif
