@@ -536,6 +536,67 @@ void MySampleApp::OnRender()
             draw->AddText(ImVec2(hx, hy), hintColor, hint);
         }
 
+        // --- Victory / Defeat overlay ---
+        if (combat.isBattleStarted()
+            && teamA.totalSpawned > 0 && teamB.totalSpawned > 0
+            && (teamA.alive == 0 || teamB.alive == 0))
+        {
+            const float screenH = io.DisplaySize.y;
+
+            // Dim background
+            draw->AddRectFilled(ImVec2(0, 0), ImVec2(screenW, screenH),
+                                IM_COL32(0, 0, 0, 150));
+
+            const char *resultText = nullptr;
+            ImU32 resultColor = IM_COL32(255, 255, 255, 255);
+
+            if (teamA.alive > 0 && teamB.alive == 0)
+            {
+                resultText = "VICTORY!";
+                resultColor = IM_COL32(50, 220, 80, 255);
+            }
+            else if (teamB.alive > 0 && teamA.alive == 0)
+            {
+                resultText = "DEFEAT";
+                resultColor = IM_COL32(220, 50, 50, 255);
+            }
+            else
+            {
+                resultText = "DRAW";
+                resultColor = IM_COL32(200, 200, 100, 255);
+            }
+
+            // Large result text (scaled up)
+            ImFont *font = ImGui::GetFont();
+            const float bigSize = font->FontSize * 3.0f;
+
+            ImVec2 textSize = font->CalcTextSizeA(bigSize, FLT_MAX, 0.0f, resultText);
+            float tx = (screenW - textSize.x) * 0.5f;
+            float ty = screenH * 0.35f;
+
+            // Shadow
+            draw->AddText(font, bigSize, ImVec2(tx + 3, ty + 3),
+                          IM_COL32(0, 0, 0, 220), resultText);
+            // Main text
+            draw->AddText(font, bigSize, ImVec2(tx, ty),
+                          resultColor, resultText);
+
+            // Subtitle with survivor count
+            char subtitle[128];
+            if (teamA.alive > 0)
+                snprintf(subtitle, sizeof(subtitle), "%d of your units survived", teamA.alive);
+            else if (teamB.alive > 0)
+                snprintf(subtitle, sizeof(subtitle), "%d enemy units remaining", teamB.alive);
+            else
+                snprintf(subtitle, sizeof(subtitle), "Both armies have fallen");
+
+            ImVec2 subSize = ImGui::CalcTextSize(subtitle);
+            float sx = (screenW - subSize.x) * 0.5f;
+            float sy = ty + textSize.y + 16.0f;
+            draw->AddText(ImVec2(sx + 1, sy + 1), IM_COL32(0, 0, 0, 200), subtitle);
+            draw->AddText(ImVec2(sx, sy), IM_COL32(220, 220, 220, 240), subtitle);
+        }
+
         ImGui::End();
     }
 

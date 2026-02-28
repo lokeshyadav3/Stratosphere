@@ -192,6 +192,10 @@ public:
             m_loggedStart = true;
         }
 
+        // Ensure query exists early so stats refresh works before battle
+        if (m_queryId == Engine::ECS::QueryManager::InvalidQuery)
+            m_queryId = ecs.queries.createQuery(required(), excluded(), ecs.stores);
+
         // ---- Phase 0: Refresh team stats (only when state changed) ----
         if (m_statsDirty)
         {
@@ -201,10 +205,6 @@ public:
 
         // ---- Phase 1: Process pending death removals ----
         processDeathRemovals(ecs, dt);
-
-        // ---- Phase 2: Collect combat actions (NO store mutations) ----
-        if (m_queryId == Engine::ECS::QueryManager::InvalidQuery)
-            m_queryId = ecs.queries.createQuery(required(), excluded(), ecs.stores);
 
         // If battle hasn't started yet, keep everyone idle
         if (!m_battleStarted)
