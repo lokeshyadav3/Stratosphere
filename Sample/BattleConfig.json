@@ -5,18 +5,18 @@
 
     "combat": {
         "meleeRange": 2.0,
-        "damageMin": 12.0,
-        "damageMax": 28.0,
+        "damageMin": 14.0,
+        "damageMax": 24.0,
         "deathRemoveDelay": 3.0,
         "maxHPPerUnit": 140.0,
 
-        "missChance": 0.20,
-        "critChance": 0.10,
-        "critMultiplier": 2.0,
+        "missChance": 0.15,
+        "critChance": 0.05,
+        "critMultiplier": 1.5,
 
-        "rageMaxBonus": 0.50,
-        "cooldownJitter": 0.30,
-        "staggerMax": 0.6
+        "rageMaxBonus": 0.20,
+        "cooldownJitter": 0.15,
+        "staggerMax": 0.4
     },
 
     "anchors": {
@@ -122,7 +122,7 @@
             "id": "team_a",
             "unitType": "CombatKnight",
             "team": 0,
-            "count": 20,
+            "count": 24,
             "anchor": "team_a_spawn",
             "offset": { "x": 0.0, "z": 0.0 },
             "facingYawDeg": 90.0,
